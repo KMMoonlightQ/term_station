@@ -4,10 +4,17 @@ set -eu
 station_root=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 station_source=${1:-"$station_root/dist/term-station"}
 if [ "$#" -gt 1 ]; then
-    printf '%s\n' '用法：./install.sh [可执行文件路径]' >&2
+    printf '%s\n' '用法：./install.sh [程序目录或可执行文件路径]' >&2
     exit 1
 fi
-if [ ! -x "$station_source" ]; then
+station_bundle=''
+if [ -d "$station_source" ]; then
+    station_bundle=$station_source
+    station_source="$station_bundle/term-station"
+elif [ -d "$(dirname -- "$station_source")/_internal" ]; then
+    station_bundle=$(dirname -- "$station_source")
+fi
+if [ ! -f "$station_source" ] || [ ! -x "$station_source" ]; then
     printf '%s\n' "找不到可执行文件：$station_source，请先运行 ./build.sh。" >&2
     exit 1
 fi
@@ -26,13 +33,26 @@ esac
 # Verify the artifact before changing the installed program or shell config.
 "$station_source" --version
 mkdir -p "$station_bin" "$station_config_dir"
-station_temporary=$(mktemp "$station_bin/.term-station.XXXXXX")
-trap 'if [ -n "$station_temporary" ]; then rm -f -- "$station_temporary"; fi' EXIT
+station_work=$(mktemp -d "$station_bin/.term-station.XXXXXX")
+station_release=''
+trap 'rm -rf -- "$station_work"; if [ -n "$station_release" ]; then rm -rf -- "$station_release"; fi' EXIT
 trap 'exit 1' HUP INT TERM
-install -m 755 "$station_source" "$station_temporary"
-# Replacing the directory entry leaves any running executable intact.
-mv -f -- "$station_temporary" "$station_destination"
-station_temporary=''
+if [ -n "$station_bundle" ]; then
+    station_releases="$station_home/.local/share/term-station/releases"
+    mkdir -p "$station_releases"
+    station_release=$(mktemp -d "$station_releases/runtime.XXXXXX")
+    cp -R "$station_bundle/." "$station_release/"
+    # Validate the relocated runtime before making it the active command.
+    "$station_release/term-station" --version
+    ln -s "$station_release/term-station" "$station_work/term-station"
+else
+    # Continue to accept older, standalone one-file artifacts explicitly.
+    install -m 755 "$station_source" "$station_work/term-station"
+fi
+# Keep previous release directories: a detached daemon may still import from
+# them. Only replace the command's directory entry, never its running target.
+mv -f -- "$station_work/term-station" "$station_destination"
+station_release=''
 
 quote_path() {
     printf "'"
@@ -41,22 +61,35 @@ quote_path() {
 }
 
 station_quoted_bin=$(quote_path "$station_bin")
+# Put this installation first even if another installer put Homebrew ahead of
+# an existing .local/bin entry. Remove previous occurrences before prepending.
+{
+    printf '%s\n' '# >>> term-station PATH >>>' 'term_station_path=":${PATH-}:"'
+    printf 'while case "$term_station_path" in *:%s:*) true ;; *) false ;; esac; do\n' "$station_quoted_bin"
+    printf '    term_station_path="${term_station_path%%%%:%s:*}:${term_station_path#*:%s:}"\n' "$station_quoted_bin" "$station_quoted_bin"
+    printf '%s\n' 'done' 'term_station_path=${term_station_path#:}' 'term_station_path=${term_station_path%:}'
+    printf 'export PATH=%s:"$term_station_path"\n' "$station_quoted_bin"
+    printf '%s\n' 'unset term_station_path' '# <<< term-station PATH <<<'
+} > "$station_work/path-block"
+
 configure_path() {
     station_rc=$1
-    if [ -f "$station_rc" ] && grep -Fqx '# >>> term-station PATH >>>' "$station_rc"; then
-        return
-    fi
+    station_existing=$station_rc
+    if [ ! -e "$station_existing" ]; then station_existing=/dev/null; fi
+    # Replace only our own marked block; preserve the user's other settings.
+    awk '
+        NR == FNR { block = block $0 "\n"; next }
+        $0 == "# >>> term-station PATH >>>" { printf "%s", block; found = 1; inside = 1; next }
+        $0 == "# <<< term-station PATH <<<" && inside { inside = 0; next }
+        !inside { print }
+        END { if (inside) exit 1; if (!found) printf "\n%s", block }
+    ' "$station_work/path-block" "$station_existing" > "$station_work/config"
+    if cmp -s "$station_rc" "$station_work/config"; then return; fi
     if [ -e "$station_rc" ]; then
         station_backup=$(mktemp "$station_rc.term-station-backup.XXXXXX")
         cp -p "$station_rc" "$station_backup"
     fi
-    {
-        printf '\n%s\n' '# >>> term-station PATH >>>'
-        printf '%s\n' 'case ":$PATH:" in'
-        printf '    *:%s:*) ;;\n' "$station_quoted_bin"
-        printf '    *) export PATH=%s:"$PATH" ;;\n' "$station_quoted_bin"
-        printf '%s\n' 'esac' '# <<< term-station PATH <<<'
-    } >> "$station_rc"
+    cat "$station_work/config" > "$station_rc"
 }
 
 case "$station_shell" in

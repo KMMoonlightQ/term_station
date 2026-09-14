@@ -18,11 +18,20 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="term-station",
     console=True,
     strip=False,
     upx=False,
+)
+# Keep dependencies at a stable path so macOS does not validate newly
+# extracted dynamic libraries on every UI start.
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="term-station",
 )

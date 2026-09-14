@@ -73,3 +73,77 @@ def test_failed_artifact_does_not_change_installation_or_config(tmp_path):
     assert result.returncode != 0
     assert (home / ".zshrc").read_text() == original
     assert not (home / ".local/bin").exists()
+
+
+def test_directory_install_relocates_dependencies_and_preserves_previous_runtime(tmp_path):
+    import shutil
+
+    home, _, environment = install_fixture(tmp_path, "/bin/zsh")
+    bundle = tmp_path / "bundle with spaces"
+    internal = bundle / "_internal"
+    internal.mkdir(parents=True)
+    (internal / "value.txt").write_text("version one\n")
+    (internal / "current.txt").symlink_to("value.txt")
+    binary = bundle / "term-station"
+    binary.write_text(
+        '#!/bin/sh\nset -eu\nexe=$0\n'
+        'if [ -L "$exe" ]; then exe=$(readlink "$exe"); fi\n'
+        'cat "$(dirname -- "$exe")/_internal/current.txt"\n'
+    )
+    binary.chmod(0o755)
+    subprocess.run([str(INSTALLER), str(bundle)], env=environment, check=True, capture_output=True)
+    command = home / ".local/bin/term-station"
+    old_runtime = command.resolve().parent
+    assert command.is_symlink()
+    assert old_runtime != bundle
+    assert (old_runtime / "_internal/current.txt").is_symlink()
+
+    (internal / "value.txt").write_text("version two\n")
+    # Accept both the directory and the executable within that directory.
+    subprocess.run([str(INSTALLER), str(binary)], env=environment, check=True, capture_output=True)
+    assert command.resolve().parent != old_runtime
+    shutil.rmtree(bundle)
+    result = subprocess.run([str(command), "--version"], env=environment, capture_output=True, text=True, check=True)
+    assert result.stdout == "version two\n"
+    # An old detached daemon must retain its original dependencies after upgrade.
+    assert (old_runtime / "_internal/current.txt").read_text() == "version one\n"
+    result = subprocess.run([str(old_runtime / "term-station")], env=environment, capture_output=True, text=True, check=True)
+    assert result.stdout == "version one\n"
+
+
+def test_upgrade_prioritizes_local_command_and_replaces_old_path_block(tmp_path):
+    home, artifact, environment = install_fixture(tmp_path, "/bin/bash")
+    bin_path = home / ".local/bin"
+    original = (
+        "export KEEP_SETTING=yes\n"
+        "# >>> term-station PATH >>>\n"
+        "export OLD_STATION_BLOCK=yes\n"
+        "# <<< term-station PATH <<<\n"
+        "export AFTER_SETTING=yes\n"
+    )
+    (home / ".bashrc").write_text(original)
+    subprocess.run([str(INSTALLER), str(artifact)], env=environment, check=True, capture_output=True)
+    environment["PATH"] = f"/usr/bin:{bin_path}:/bin:{bin_path}"
+    result = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-c",
+         'source "$1/.bashrc"; source "$1/.bashrc"; printf "%s\\n" "$PATH"; '
+         'printf "%s %s %s\\n" "$KEEP_SETTING" "$AFTER_SETTING" "${OLD_STATION_BLOCK-no}"',
+         "bash", str(home)], env=environment, capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.splitlines() == [f"{bin_path}:/usr/bin:/bin", "yes yes no"]
+    assert (home / ".bashrc").read_text().count("# >>> term-station PATH >>>") == 1
+    assert next(home.glob(".bashrc.term-station-backup.*")).read_text() == original
+
+
+def test_incomplete_bundle_does_not_replace_existing_command(tmp_path):
+    home, artifact, environment = install_fixture(tmp_path, "/bin/zsh")
+    subprocess.run([str(INSTALLER), str(artifact)], env=environment, check=True, capture_output=True)
+    command = home / ".local/bin/term-station"
+    before_command = command.read_bytes()
+    before_config = (home / ".zshrc").read_bytes()
+    incomplete = tmp_path / "incomplete"
+    incomplete.mkdir()
+    result = subprocess.run([str(INSTALLER), str(incomplete)], env=environment, capture_output=True)
+    assert result.returncode != 0
+    assert command.read_bytes() == before_command
+    assert (home / ".zshrc").read_bytes() == before_config

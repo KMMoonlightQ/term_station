@@ -1,4 +1,4 @@
-"""Opt-in tests for the actual executable: TERM_STATION_BUNDLE=/path/to/binary."""
+"""Opt-in tests for the actual executable: TERM_STATION_BUNDLE=/path/to/bundle-directory."""
 import asyncio
 import fcntl
 import json
@@ -21,10 +21,15 @@ from conftest import screen_lines, wait_frame
 
 @pytest.mark.skipif(not os.environ.get("TERM_STATION_BUNDLE"), reason="需要指定打包产物")
 async def test_standalone_binary_preserves_sessions_after_ui_exit_and_reopen(tmp_path):
-    # Copy the sole artifact outside the repository. Neither the source tree
-    # nor its virtualenv is available via the child process's working path.
-    binary = tmp_path / "term-station"
-    shutil.copy2(Path(os.environ["TERM_STATION_BUNDLE"]).resolve(), binary)
+    # Relocate the complete distribution, including internal library symlinks.
+    # Neither the source tree nor its virtualenv is on the child's working path.
+    artifact = Path(os.environ["TERM_STATION_BUNDLE"]).resolve()
+    if artifact.is_file():
+        artifact = artifact.parent
+    bundle = tmp_path / "relocated bundle"
+    shutil.copytree(artifact, bundle, symlinks=True)
+    binary = bundle / "term-station"
+    assert (bundle / "_internal").is_dir()
     environment = {k: v for k, v in os.environ.items()
                    if k not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "NO_COLOR", "TEXTUAL_DEVTOOLS"}}
     environment.update(PATH="/usr/bin:/bin:/usr/sbin:/sbin", SHELL="/bin/sh",
@@ -75,8 +80,7 @@ async def test_standalone_binary_preserves_sessions_after_ui_exit_and_reopen(tmp
 
     try:
         process, master, screen = launch()
-        # A copied executable starts two independent one-file runtimes (UI and
-        # daemon). Allow for macOS cold-start validation as well as unpacking.
+        # Allow for macOS validation of the newly copied distribution.
         for _ in range(1200):
             try:
                 await client.connect(start=False)
@@ -104,15 +108,17 @@ async def test_standalone_binary_preserves_sessions_after_ui_exit_and_reopen(tmp
         assert psutil.pid_exists(daemon_pid)
         assert (await client.call("list"))["sessions"][0]["pid"] == shell_pid
         runtime = psutil.Process(daemon_pid).environ().get("_PYI_APPLICATION_HOME_DIR")
-        assert runtime and Path(runtime).is_dir(), "后台运行目录必须在界面退出后继续存在"
+        # Onedir bootloaders may omit the one-file extraction environment key.
+        if runtime:
+            assert Path(runtime).resolve() == (bundle / "_internal").resolve()
+        assert (bundle / "_internal").is_dir(), "后台运行目录必须在界面退出后继续存在"
 
         process, master, screen = launch()
         await visible(screen, "BUNDLE_READY")
         os.write(master, b"printf '\\nBUNDLE_%s\\n' \"$BUNDLE_CHECK\"\r")
         await wait_frame(client, component.id, lambda f: "BUNDLE_preserved" in screen_lines(f))
         assert (await client.call("ping"))["pid"] == daemon_pid
-        # Creating another shell after the first UI's extraction was cleaned up
-        # exercises the surviving daemon and packaged UI resources together.
+        # The surviving daemon can create shells after the first UI exits.
         os.write(master, b"\x02a")
         for _ in range(100):
             if len((await client.call("list"))["sessions"]) == 2:

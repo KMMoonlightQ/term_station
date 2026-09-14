@@ -17,13 +17,13 @@ python3 -m venv .venv
 
 ## 可执行程序
 
-打包后的 `dist/term-station` 是独立的终端程序，无需安装 Python 或项目依赖。在终端中运行：
+打包后的 `dist/term-station/` 包含独立的终端程序及其依赖，无需安装 Python 或项目依赖。在终端中运行：
 
 ```sh
-./dist/term-station
+./dist/term-station/term-station
 ```
 
-可以把这个文件复制到其他目录运行；默认继续使用 `~/.local/state/term-station/` 中的布局和后台会话，`sessions`、`stop --yes`、`--state-dir` 等参数保持一致。
+分发时请复制整个 `dist/term-station/` 目录，包括 `_internal/`，不能只复制可执行文件。目录式打包让依赖保留在固定路径，避免每次重新打开都解包并重新加载临时动态库。默认继续使用 `~/.local/state/term-station/` 中的布局和后台会话，`sessions`、`stop --yes`、`--state-dir` 等参数保持一致。
 
 安装为命令：
 
@@ -31,7 +31,7 @@ python3 -m venv .venv
 ./install.sh
 ```
 
-安装脚本会把程序复制到 `~/.local/bin/term-station`，自动配置 zsh / bash 的 PATH，无需 sudo。新开终端后直接输入 `term-station`；当前终端可运行 `export PATH="$HOME/.local/bin:$PATH"` 立即生效。已有 Shell 配置会先备份，重复安装不会重复添加 PATH。重新打包后再次运行安装脚本即可更新程序，布局和后台会话保留。
+安装脚本会把完整程序安装到 `~/.local/share/term-station/releases/`，再通过 `~/.local/bin/term-station` 链接启动；自动配置 zsh / bash 的 PATH，无需 sudo。新开终端后直接输入 `term-station`；当前终端可运行 `export PATH="$HOME/.local/bin:$PATH"` 立即生效。已有 Shell 配置会先备份，重复安装不会重复添加 PATH。重新打包后再次运行安装脚本即可更新程序，布局和后台会话保留。每次安装使用独立的依赖目录，旧目录保留供运行中的后台使用；停止所有旧后台后可手动清理不再使用的版本。
 
 重新打包当前源码：
 
@@ -40,7 +40,7 @@ python3 -m venv .venv
 ./build.sh
 ```
 
-产物对应构建机器的系统和 CPU 架构；在 Apple Silicon Mac 上构建的是 macOS arm64 程序。后台使用独立的运行环境，界面离开后仍能接回已有会话。实现遵循 [PyInstaller 独立子进程的要求](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#using-sys-executable-to-spawn-subprocesses-that-outlive-the-application-process-implementing-application-restart)。
+产物对应构建机器的系统和 CPU 架构；在 Apple Silicon Mac 上构建的是 macOS arm64 程序。后台使用已安装的依赖目录，界面离开后仍能接回已有会话。实现遵循 [PyInstaller 独立子进程的要求](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#using-sys-executable-to-spawn-subprocesses-that-outlive-the-application-process-implementing-application-restart)。
 
 ## 使用
 
