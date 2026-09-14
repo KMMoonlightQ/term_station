@@ -2,7 +2,25 @@
 
 纯终端工作台：持久 Shell 会话、多个 Tab，以及可以拖拽和调整尺寸的组件 Dashboard。支持 macOS 和 Linux，Windows 可以在 WSL 中运行。
 
-## 启动
+## Homebrew 安装与更新
+
+macOS 14+、Apple Silicon 用户可以直接安装，无需另装 Python：
+
+```sh
+brew install KMMoonlightQ/tools/term-station
+term-station
+```
+
+更新：
+
+```sh
+brew update
+HOMEBREW_NO_INSTALL_CLEANUP=1 brew upgrade KMMoonlightQ/tools/term-station
+```
+
+更新时保留旧版本目录，供仍在运行的后台会话使用。新版鼠标转发需要新版后台；保存工作并结束旧后台后，再启动即可生效。
+
+## 从源码运行
 
 需要 Python 3.9 或更新版本，以及支持鼠标和真彩色的终端，例如 iTerm2、WezTerm、Ghostty 或 macOS Terminal。建议窗口至少 100 列 × 32 行。
 
