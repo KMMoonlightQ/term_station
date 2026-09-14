@@ -1,6 +1,8 @@
 import shlex
 import sys
+from unittest.mock import Mock
 
+import pytest
 from textual._xterm_parser import XTermParser
 from textual.widgets import Input, Tabs
 
@@ -19,6 +21,52 @@ async def ready(app, pilot):
         if app.connected and all(v.frame for v in views):
             return
     raise AssertionError("TUI 未连接终端")
+
+
+async def test_old_daemon_warns_once_keeps_shell_usable_and_clears_after_upgrade(service, tmp_path, monkeypatch):
+    app = TermStation(tmp_path)
+    original_call = app.client.call
+    legacy = True
+
+    async def call(operation, **parameters):
+        response = await original_call(operation, **parameters)
+        if legacy and operation == "snapshot":
+            for frame in response["frames"]:
+                frame.pop("mouse_tracking")
+        return response
+
+    monkeypatch.setattr(app.client, "call", call)
+    notify = Mock()
+    monkeypatch.setattr(app, "notify", notify)
+    async with app.run_test(size=(120, 38)) as pilot:
+        await ready(app, pilot)
+        bar = app.query_one("#command-bar")
+        assert "旧后台不支持鼠标转发" in bar.render_line(0).text
+        notify.assert_called_once()
+        assert "结束所有终端会话" in notify.call_args.args[0]
+        terminal = app.query_one(TerminalView)
+        await pilot.press(*"printf 'LEGACY_%s\\n' works", "enter")
+        await wait_frame(service, terminal.component.id, lambda f: "LEGACY_works" in screen_lines(f))
+        await pilot.press("ctrl+b")
+        assert "等待命令" in bar.render_line(0).text
+        await pilot.press("escape")
+        assert "旧后台不支持鼠标转发" in bar.render_line(0).text
+        notify.assert_called_once()
+
+        # Reconnecting to a mouse-capable daemon clears the warning even when
+        # no child has enabled mouse tracking (mouse_tracking == 0).
+        legacy = False
+        await app.client.close()
+        app.connected = False
+        await ready(app, pilot)
+        for _ in range(40):
+            await pilot.pause(0.05)
+            if app.daemon_mouse_supported is True:
+                break
+        assert app.daemon_mouse_supported is True
+        assert terminal.frame["mouse_tracking"] == 0
+        assert bar.render_line(0).text.strip() == ""
+        assert (await service.call("list"))["sessions"][0]["alive"]
 
 
 async def test_tabs_keyboard_shell_input_and_reopen(service, tmp_path):
@@ -80,6 +128,43 @@ async def test_shift_chords_reach_shell_as_text(service, tmp_path):
         await pilot.pause()
         await pilot.press("'", "enter")
         await wait_frame(service, terminal.component.id, lambda f: "SHIFT_H?H" in screen_lines(f))
+
+
+@pytest.mark.parametrize("command", ["d", "D", "\x04", "\x1b[100;2;68u"])
+async def test_detach_from_child_prompt_preserves_input_and_running_session(service, tmp_path, command):
+    child = tmp_path / "prompt_child.py"
+    child.write_text("""import os, termios, tty
+saved = termios.tcgetattr(0)
+try:
+    tty.setraw(0)
+    os.write(1, b'READY_PROMPT\\r\\n')
+    data = bytearray()
+    while True:
+        data.extend(os.read(0, 1))
+        os.write(1, b'BUF:' + data.hex().encode() + b'\\r\\n')
+finally:
+    termios.tcsetattr(0, termios.TCSANOW, saved)
+""")
+    app = TermStation(tmp_path)
+    async with app.run_test(size=(120, 38)) as pilot:
+        await ready(app, pilot)
+        terminal = app.query_one(TerminalView)
+        await terminal.send(shlex.join([sys.executable, str(child)]) + "\r")
+        await wait_frame(service, terminal.component.id, lambda f: "READY_PROMPT" in screen_lines(f))
+        await pilot.press("h", "i")
+        await wait_frame(service, terminal.component.id, lambda f: "BUF:6869" in screen_lines(f))
+        sessions = (await service.call("list"))["sessions"]
+        await pilot.press("ctrl+b")
+        assert app.prefix_active
+        for event in XTermParser().feed(command):
+            app.post_message(event)
+        await pilot.pause()
+        assert not app.is_running
+    assert (await service.call("list"))["sessions"] == sessions
+    # Reconnect to the same raw-input child and prove the detach gesture did
+    # not append d/D or send Ctrl+D. The child's existing input is preserved.
+    await service.call("input", id=terminal.component.id, data="!")
+    await wait_frame(service, terminal.component.id, lambda f: "BUF:686921" in screen_lines(f))
 
 
 async def test_modified_chords_deliver_exact_bytes_to_child(service, tmp_path):

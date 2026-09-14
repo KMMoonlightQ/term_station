@@ -24,6 +24,13 @@ PREFIX_ALIASES = {key: "question_mark" for key in (
     "fullwidth_question_mark", "shift+question_mark", "shift+slash",
     "ctrl+question_mark", "ctrl+shift+question_mark", "ctrl+shift+slash", "ctrl+underscore",
 )}
+# Prefix commands describe letters, independent of case. Accept a still-held
+# Control key on the second stroke as well (Ctrl+B, Ctrl+D).
+for command in PREFIX_ACTIONS:
+    if len(command) == 1:
+        for letter in (command, command.upper()):
+            for modifiers in ("", "shift+", "ctrl+", "ctrl+shift+", "shift+ctrl+"):
+                PREFIX_ALIASES[modifiers + letter] = command
 PREFIX_KEYS = [*PREFIX_ACTIONS, *"123456789"]
 MODIFIER_KEYS = {f"{side}_{modifier}" for side in ("left", "right")
                  for modifier in ("shift", "control", "alt", "super", "hyper", "meta")} | {

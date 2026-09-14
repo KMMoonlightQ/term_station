@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from textual import events
@@ -184,6 +184,41 @@ async def test_literal_control_b_still_reaches_the_shell(key_app, monkeypatch):
             await pilot.press("ctrl+b", second_key)
             assert not key_app.prefix_active
         assert [call.args[0] for call in send.await_args_list] == ["\x02", "\x02"]
+
+
+@pytest.mark.parametrize("sequence", [
+    "\x02d",                         # Legacy Ctrl+B, then d.
+    "\x02D",                         # Uppercase command letter.
+    "\x02\x04",                      # Keep Control held for the second stroke.
+    "\x1b[98;5u\x1b[100;1u",        # CSI-u without associated text.
+    "\x1b[98;5u\x1b[57441;2u\x1b[100;2u",  # Shift press, then Shift+D.
+    "\x1b[98;5u\x1b[100;2;68u",     # Shift+D with associated uppercase text.
+    "\x1b[98;5u\x1b[100;5u",        # Ctrl+D in CSI-u.
+    "\x1b[98;5u\x1b[100;6u",        # Ctrl+Shift+D.
+])
+async def test_detach_prefix_never_types_into_child_input(key_app, monkeypatch, sequence):
+    async with key_app.run_test() as pilot:
+        terminal = key_app.query_one(TerminalView)
+        send = AsyncMock()
+        detach = AsyncMock()
+        monkeypatch.setattr(terminal, "send", send)
+        monkeypatch.setattr(key_app, "action_detach", detach)
+        for event in XTermParser().feed(sequence):
+            key_app.post_message(event)
+        await pilot.pause()
+        detach.assert_awaited_once()
+        send.assert_not_called()
+        assert not key_app.prefix_active
+
+
+async def test_unknown_prefix_reports_the_unrecognized_key(key_app, monkeypatch):
+    async with key_app.run_test() as pilot:
+        notify = Mock()
+        monkeypatch.setattr(key_app, "notify", notify)
+        await pilot.press("ctrl+b", "f3")
+        notify.assert_called_once()
+        assert "f3" in notify.call_args.args[0]
+        assert not key_app.prefix_active
 
 
 @pytest.mark.parametrize("shift_code", [57441, 57447])

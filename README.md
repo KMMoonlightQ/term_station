@@ -76,6 +76,8 @@ python3 -m venv .venv
 
 进入前缀状态时，底部命令栏显示 `Ctrl+B › 等待命令`；执行命令或取消后清空。命令栏固定占一行，切换状态不会挤动终端内容。
 
+前缀后的字母命令不区分大小写；例如 `Ctrl+B → d`、`Ctrl+B → D` 和保持 Ctrl 按住的 `Ctrl+B → Ctrl+D` 都会保存并离开。无法识别的第二个按键会显示提示，便于检查终端的按键编码。
+
 | 操作 | 快捷键 |
 | --- | --- |
 | 新建 Tab | Ctrl+B → C |
@@ -140,6 +142,8 @@ Textual TUI  ── Unix socket（仅本用户） ── Python 后台服务
 首版使用内置的轻量复用服务，不依赖或修改 tmux 配置。支持 ANSI / VT 常用序列、备用屏幕，以及应用鼠标跟踪（9/1000/1002/1003、SGR 1006 和传统字节编码）。尚未实现终端图像协议、像素鼠标坐标和与 tmux 的完整协议兼容。可在组件 Shell 中按需运行 tmux。
 
 鼠标转发需要新版界面和新版后台同时运行。仅退出再打开界面会接回原有后台；升级前请先保存后台程序的工作，再结束旧后台并重新启动。`stop --yes` 会结束该工作空间的所有终端会话，不能保留正在运行的进程；使用新的 `--state-dir` 可以先验证新版而不影响原有会话。
+
+如果底栏显示“旧后台不支持鼠标转发”，请先保存各程序中的工作，按 `Ctrl+B → D` 退出界面，再运行 `term-station stop --yes`，最后重新启动 `term-station`。使用自定义工作空间时，停止和启动都要带上相同的 `--state-dir PATH`。`Ctrl+B → R` 只重启组件内的 Shell，无法更新后台。
 
 技术参考：[Textual 文档](https://textual.textualize.io/guide/widgets/)、[pyte API](https://pyte.readthedocs.io/en/latest/api.html)。
 

@@ -42,6 +42,7 @@ class TermStation(App, inherit_bindings=False):
         self.prefix_active = False
         self.save_timer = None
         self.connected = False
+        self.daemon_mouse_supported: bool | None = None
         self.save_error = ""
         self.tab_lock = None
         self.updating_tabs = False
@@ -134,6 +135,9 @@ class TermStation(App, inherit_bindings=False):
             return
         if key in PREFIX_ACTIONS:
             await self.run_action(PREFIX_ACTIONS[key])
+        else:
+            self.notify(f"未识别的前缀按键：{key!r}。请重新按 Ctrl+B 后选择命令。",
+                        severity="warning")
 
     async def action_send_prefix(self) -> None:
         panel = self.current_panel()
@@ -386,9 +390,24 @@ class TermStation(App, inherit_bindings=False):
             return
         self.query_one("#tab-row").display = len(self.workspace.tabs) >= 2
         self.set_class(self.prefix_active, "prefix-active")
-        self.query_one("#command-bar", Static).update("Ctrl+B › 等待命令" if self.prefix_active else "")
+        status = "旧后台不支持鼠标转发 · 保存各程序的工作后重启后台" if self.daemon_mouse_supported is False else ""
+        self.query_one("#command-bar", Static).update("Ctrl+B › 等待命令" if self.prefix_active else status)
         for panel in self.query(Panel):
             panel.update_state()
+
+    def check_mouse_support(self, frame: dict) -> None:
+        # Earlier mouse-capable releases share ping version 1 with old daemons.
+        # A zero tracking mode means an ordinary shell; an absent field means
+        # this daemon cannot forward mouse input at all.
+        supported = "mouse_tracking" in frame
+        if supported == self.daemon_mouse_supported:
+            return
+        self.daemon_mouse_supported = supported
+        if not supported:
+            self.notify("当前后台不支持鼠标转发。请保存各程序的工作，再退出界面、停止后台并重新启动。"
+                        "停止后台会结束所有终端会话；只重启当前 Shell 无法更新后台。",
+                        title="需要更新后台", severity="warning", timeout=15)
+        self.refresh_chrome()
 
     async def poll_loop(self) -> None:
         next_title_update = 0.0
@@ -399,6 +418,7 @@ class TermStation(App, inherit_bindings=False):
                         await self.client.connect()
                         await self.client.call("ping")
                         self.connected = True
+                        self.daemon_mouse_supported = None
                         for view in self.query(TerminalView):
                             view.ready = False
                             view.frame = {}
@@ -424,6 +444,8 @@ class TermStation(App, inherit_bindings=False):
                              for v in views if v.ready and v.is_mounted and v.visible]
                     if specs:
                         response = await self.client.call("snapshot", sessions=specs)
+                        if response["frames"]:
+                            self.check_mouse_support(response["frames"][0])
                         by_id = {v.component.id: v for v in views}
                         for frame in response["frames"]:
                             view = by_id.get(frame["id"])
