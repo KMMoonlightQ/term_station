@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import platform
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import psutil
 from rich.text import Text
@@ -13,6 +15,7 @@ from textual.layout import Layout, WidgetPlacement
 from textual.widget import Widget
 from textual.widgets import Static, TextArea
 
+from .dividers import Divider
 from .model import Component
 from .terminal import TerminalView
 
@@ -51,10 +54,26 @@ class DashboardLayout(Layout):
         return placements
 
 
+@dataclass
+class DragTarget:
+    panel: Panel
+    kind: str
+    divider: Divider | None = None
+
+    @property
+    def pointer(self) -> str:
+        return {"move": "grab", "x": "ew-resize", "y": "ns-resize",
+                "e": "ew-resize", "w": "ew-resize", "s": "ns-resize",
+                "se": "nwse-resize", "sw": "nesw-resize"}[self.kind]
+
+
 class Dashboard(ScrollableContainer):
     def __init__(self):
         super().__init__(id="dashboard")
         self.dashboard_layout = DashboardLayout()
+        self.drag_target: DragTarget | None = None
+        self.hovered: list[Panel] = []
+        self.hover_pointer = "default"
 
     @property
     def layout(self) -> Layout:
@@ -76,6 +95,140 @@ class Dashboard(ScrollableContainer):
         rows = max((child.component.y + child.component.h for child in self.children), default=1)
         return (max(1, self.content_size.width)/12,
                 max(self.content_size.height, rows*2)/rows)
+
+    def drag_target_at(self, x: int, y: int) -> DragTarget | None:
+        if self.app.zoomed or self.compact or not self.region.contains(x, y):
+            return None
+        panels = [p for p in self.children if p.display]
+        if len(panels) < 2:
+            return None
+        candidates = []
+        for before in panels:
+            a, ar = before.component, before.region
+            for after in panels:
+                if before is after:
+                    continue
+                b, br = after.component, after.region
+                if a.x+a.w == b.x and ar.right == br.x and max(ar.y, br.y) <= y < min(ar.bottom, br.bottom):
+                    # Both border columns plus one inner column on each side.
+                    distance = abs(x - (br.x - 0.5))
+                    if distance <= 1.5:
+                        candidates.append((distance, "x", before, after))
+                if a.y+a.h == b.y and ar.bottom == br.y and max(ar.x, br.x) <= x < min(ar.right, br.right):
+                    distance = abs(y - (br.y - 0.5))
+                    if distance <= 1.5:
+                        candidates.append((distance, "y", before, after))
+        if candidates:
+            _, axis, before, after = min(candidates, key=lambda c: c[0])
+            return DragTarget(before, axis, Divider(axis, before.component, after.component,
+                                                    [p.component for p in panels]))
+        for panel in reversed(panels):
+            region = panel.region
+            if not region.contains(x, y):
+                continue
+            # The title / top border is the move handle. Other free edges resize.
+            if y == region.y:
+                return DragTarget(panel, "move")
+            west, east = x <= region.x+1, x >= region.right-2
+            south = y >= region.bottom-2
+            if south:
+                return DragTarget(panel, "sw" if west else "se" if east else "s")
+            if west or east:
+                return DragTarget(panel, "w" if west else "e")
+        return None
+
+    def show_drag_target(self, target: DragTarget | None, dragging: bool = False) -> None:
+        ids = {c.id for c in target.divider.members} if target and target.divider else {target.panel.component.id} if target else set()
+        hovered = [p for p in self.children if p.component.id in ids]
+        pointer = ("grabbing" if dragging and target.kind == "move" else target.pointer) if target else "default"
+        # A press can arrive before the terminal reports any hover position.
+        # Keep the resize pointer while mouse capture carries us off the edge.
+        self.screen.styles.pointer = pointer if dragging else None
+        if hovered == self.hovered and pointer == self.hover_pointer:
+            self.screen.update_pointer_shape()
+            return
+        for panel in self.hovered:
+            panel.remove_class("edge-hover")
+            panel.styles.pointer = None
+            for child in panel.children:
+                child.styles.pointer = None
+        for panel in hovered:
+            panel.add_class("edge-hover")
+            panel.styles.pointer = pointer
+            for child in panel.children:
+                child.styles.pointer = pointer
+        self.hovered, self.hover_pointer = hovered, pointer
+        self.screen.update_pointer_shape()
+
+    def handle_mouse(self, event: events.MouseEvent) -> bool:
+        x, y = event.screen_x, event.screen_y
+        if isinstance(event, events.MouseMove):
+            if self.drag_target:
+                self.move_drag(x, y)
+                return True
+            self.show_drag_target(self.drag_target_at(x, y))
+        elif isinstance(event, events.MouseDown) and event.button == 1:
+            target = self.drag_target_at(x, y)
+            if target:
+                self.drag_target = target
+                panel = target.panel
+                panel.focus_content(scroll_visible=False)
+                panel.dragging = True
+                panel.resizing = target.kind != "move"
+                panel.drag_origin = (x, y)
+                panel.drag_step = self.grid_step
+                item = panel.component
+                panel.start_position = (item.x, item.y, item.w, item.h)
+                if target.kind == "move":
+                    panel.add_class("dragging")
+                panel.capture_mouse()
+                self.show_drag_target(target, dragging=True)
+                return True
+        elif isinstance(event, events.MouseUp) and event.button == 1 and self.drag_target:
+            self.move_drag(x, y)
+            self.finish_drag()
+            self.show_drag_target(self.drag_target_at(x, y))
+            return True
+        return False
+
+    def move_drag(self, mouse_x: int, mouse_y: int) -> None:
+        target = self.drag_target
+        panel = target.panel
+        dx = round((mouse_x - panel.drag_origin[0]) / panel.drag_step[0])
+        dy = round((mouse_y - panel.drag_origin[1]) / panel.drag_step[1])
+        if target.divider:
+            target.divider.resize(dx if target.kind == "x" else dy)
+        else:
+            x, y, w, h = panel.start_position
+            item = panel.component
+            if target.kind == "move":
+                item.x, item.y = max(0, min(12-w, x+dx)), max(0, min(1000, y+dy))
+            else:
+                if "e" in target.kind:
+                    item.w = max(3, min(12-x, w+dx))
+                if "w" in target.kind:
+                    item.x = max(0, min(x+w-3, x+dx))
+                    item.w = x+w-item.x
+                if "s" in target.kind:
+                    item.h = max(3, min(40, h+dy))
+        self.reflow()
+
+    def finish_drag(self, save: bool = True) -> None:
+        target = self.drag_target
+        if target is None:
+            return
+        panel = target.panel
+        panel.dragging = False
+        panel.release_mouse()
+        panel.remove_class("dragging")
+        if not target.divider:
+            item = panel.component
+            self.app.workspace.current.place(item, item.x, item.y)
+        self.drag_target = None
+        self.show_drag_target(None)
+        self.reflow()
+        if save:
+            self.app.save_workspace()
 
 
 class SystemView(Static):
@@ -121,7 +274,8 @@ class Panel(Widget, can_focus=True):
     def __init__(self, component: Component):
         super().__init__(id=f"panel-{component.id}")
         self.component = component
-        self.border_title = Text(component.title if component.title not in DEFAULT_TITLES else "")
+        self.border_title = Text(Path(component.shell).name if component.kind == "terminal"
+                                 else component.title if component.title not in DEFAULT_TITLES else "")
         self.dragging = False
         self.resizing = False
         self.drag_origin = (0, 0)
@@ -151,58 +305,14 @@ class Panel(Widget, can_focus=True):
         subtitle = ""
         if self.component.kind == "terminal":
             terminal = self.query_one(TerminalView)
+            if self.border_title != terminal.command_title:
+                self.border_title = Text(terminal.command_title)
             if terminal.frame and not terminal.frame.get("alive", True):
                 subtitle = f"exit {terminal.frame.get('exit_code')}"
             elif terminal.history_offset:
                 subtitle = f"↑{terminal.history_offset}"
         if self.border_subtitle != subtitle:
             self.border_subtitle = subtitle
-
-    def on_mouse_down(self, event: events.MouseDown) -> None:
-        if event.button != 1 or self.app.zoomed:
-            return
-        self.resizing = event.screen_y == self.region.bottom - 1 and event.screen_x >= self.region.right - 3
-        if not self.resizing and event.screen_y != self.region.y:
-            return
-        self.focus_content(scroll_visible=False)
-        if self.parent.compact:
-            return
-        item = self.component
-        self.dragging = True
-        self.drag_origin = (event.screen_x, event.screen_y)
-        self.drag_step = self.parent.grid_step
-        self.start_position = (item.x, item.y, item.w, item.h)
-        self.capture_mouse()
-        self.add_class("dragging")
-        event.stop()
-        event.prevent_default()
-
-    def on_mouse_move(self, event: events.MouseMove) -> None:
-        if not self.dragging:
-            return
-        dx = round((event.screen_x - self.drag_origin[0]) / self.drag_step[0])
-        dy = round((event.screen_y - self.drag_origin[1]) / self.drag_step[1])
-        x, y, w, h = self.start_position
-        item = self.component
-        if self.resizing:
-            item.w = max(3, min(12-x, w+dx))
-            item.h = max(3, min(40, h+dy))
-        else:
-            item.x = max(0, min(12-w, x+dx))
-            item.y = max(0, min(1000, y+dy))
-        self.parent.reflow()
-        event.stop()
-
-    def on_mouse_up(self, event: events.MouseUp) -> None:
-        if self.dragging:
-            self.dragging = False
-            self.release_mouse()
-            self.remove_class("dragging")
-            item = self.component
-            self.app.workspace.current.place(item, item.x, item.y)
-            self.parent.reflow()
-            self.app.save_workspace()
-            event.stop()
 
     def on_focus(self) -> None:
         self.app.active_panel = self.component.id

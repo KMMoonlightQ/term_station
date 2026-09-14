@@ -15,13 +15,40 @@ python3 -m venv .venv
 
 也可以通过 `pipx install .` 安装，然后直接运行 `term-station`。在本项目里，已安装依赖后可使用 `./run.sh`。
 
+## 可执行程序
+
+打包后的 `dist/term-station` 是独立的终端程序，无需安装 Python 或项目依赖。在终端中运行：
+
+```sh
+./dist/term-station
+```
+
+可以把这个文件复制到其他目录运行；默认继续使用 `~/.local/state/term-station/` 中的布局和后台会话，`sessions`、`stop --yes`、`--state-dir` 等参数保持一致。
+
+安装为命令：
+
+```sh
+./install.sh
+```
+
+安装脚本会把程序复制到 `~/.local/bin/term-station`，自动配置 zsh / bash 的 PATH，无需 sudo。新开终端后直接输入 `term-station`；当前终端可运行 `export PATH="$HOME/.local/bin:$PATH"` 立即生效。已有 Shell 配置会先备份，重复安装不会重复添加 PATH。重新打包后再次运行安装脚本即可更新程序，布局和后台会话保留。
+
+重新打包当前源码：
+
+```sh
+.venv/bin/python -m pip install -e '.[bundle]'
+./build.sh
+```
+
+产物对应构建机器的系统和 CPU 架构；在 Apple Silicon Mac 上构建的是 macOS arm64 程序。后台使用独立的运行环境，界面离开后仍能接回已有会话。实现遵循 [PyInstaller 独立子进程的要求](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#using-sys-executable-to-spawn-subprocesses-that-outlive-the-application-process-implementing-application-restart)。
+
 ## 使用
 
-主界面保留组件线框和底部一行命令栏；Tab 数量达到两个时才展示 Tab 栏。默认只有终端和便笺，自定义组件名称放在边框上。
+主界面保留组件线框和底部一行命令栏；Tab 数量达到两个时才展示 Tab 栏。默认只有终端和便笺，Shell 左上角显示当前前台命令，例如空闲时是 `zsh`，运行 `top` 时变为 `top`，退出后恢复。
 
 - **Tab**：每个 Tab 有独立名称和组件布局。点击 Tab 或用快捷键切换，按 `Ctrl+B → C` 新建。
 - **组件**：按 `Ctrl+B → A` 直接新增 Shell 窗口并自动聚焦。使用当前终端配置的 Shell 和启动目录；没有选中终端时使用工作台的默认值。
-- **布局**：拖动组件上边框移动；拖动右下角调整大小。采用 12 列网格，线框贴合窗口，相邻组件各自保留完整边框，释放时吸附，冲突组件自动下移。超出屏幕的 Dashboard 可以滚动。窄窗口或高度不足时临时使用单列展示，保留原始布局；组件高度适应可用窗口，终端提示符不会因组件过高而被截断。
+- **布局**：拖动两个组件的交界调整两侧占用比例，横向、纵向及 T 字交界都支持，外侧边界保持不变。交界两侧的边框和相邻一格都可以拖动；悬停会高亮边框，并在支持指针协议的终端中显示对应方向的缩放指针。拖动不与其他组件相接的上边框移动组件，其余独立边缘调整尺寸。采用 12 列网格，线框贴合窗口，相邻组件各自保留完整边框；移动组件时，冲突组件自动下移。超出屏幕的 Dashboard 可以滚动。窄窗口或高度不足时临时使用单列展示，保留原始布局；组件高度适应可用窗口，终端提示符不会因组件过高而被截断。
 - **终端**：使用真正的 PTY 和登录 Shell，加载原来的 `.zshrc` / `.bashrc` 等 Shell 配置。支持命令、Ctrl+C、补全、颜色、中文、粘贴、历史输出回看和常见全屏程序。
 - **保存**：Tab、组件、名称、启动目录、Shell 和便笺自动写入本地 JSON；界面退出后，后台仍保持终端进程、工作目录和环境变量。
 
@@ -86,6 +113,8 @@ Textual TUI  ── Unix socket（仅本用户） ── Python 后台服务
 - `daemon.py`：PTY 生命周期、终端模拟、Unix socket RPC；不监听网络端口。
 - `terminal.py`：终端屏幕绘制、按键和粘贴转发。
 - `widgets.py`：组件、拖拽、缩放和网格布局。
+- `dividers.py`：相邻组件共享边界的联动缩放。
+- `processes.py`：识别 PTY 的前台进程，更新 Shell 标题。
 - `app.py` / `dialogs.py`：Tab、快捷键、自动保存和管理操作。
 
 首版使用内置的轻量复用服务，不依赖或修改 tmux 配置。支持 ANSI / VT 常用序列和备用屏幕，但尚未实现终端图像协议、完整的应用鼠标协议或与 tmux 的协议兼容。可在组件 Shell 中按需运行 tmux。
@@ -96,6 +125,8 @@ Textual TUI  ── Unix socket（仅本用户） ── Python 后台服务
 
 ```sh
 .venv/bin/python -m pytest
+# 打包后验证真实可执行程序的启动、快捷键、退出及会话恢复
+TERM_STATION_BUNDLE="$PWD/dist/term-station" .venv/bin/python -m pytest tests/test_bundle.py
 ```
 
 测试覆盖真实 PTY 输入、断开后重连、子进程保活、窗口尺寸、备用屏幕、配置恢复，以及通过 Textual Pilot 模拟的 Tab、键盘布局和鼠标拖拽。测试使用临时状态目录，并停止自己创建的后台服务。

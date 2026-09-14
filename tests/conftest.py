@@ -2,6 +2,7 @@ import asyncio
 
 import psutil
 import pytest
+from textual._xterm_parser import XTermParser
 
 from term_station.daemon import Client
 
@@ -55,3 +56,13 @@ async def wait_frame(client, identifier, predicate, timeout=5):
 
 def screen_lines(frame):
     return ["".join(run[0] for run in line).rstrip() for line in frame["lines"]]
+
+
+async def mouse_input(pilot, action, position):
+    # Pilot's mouse helpers bypass App.on_event. Use the terminal's SGR mouse
+    # protocol so border interception follows the same path as real input.
+    x, y = position
+    button, suffix = {"move": (35, "M"), "down": (0, "M"), "up": (0, "m")}[action]
+    for event in XTermParser().feed(f"\x1b[<{button};{x+1};{y+1}{suffix}"):
+        pilot.app.post_message(event)
+    await pilot.pause()

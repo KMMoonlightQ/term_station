@@ -5,7 +5,7 @@ from term_station.dialogs import ConfirmScreen, HelpScreen, NameScreen
 from term_station.model import Component, Workspace, WorkspaceStore
 from term_station.terminal import TerminalView
 from term_station.widgets import Dashboard, NotesView, Panel
-from conftest import screen_lines, wait_frame
+from conftest import mouse_input, screen_lines, wait_frame
 
 
 async def ready(app, pilot):
@@ -91,11 +91,11 @@ async def test_notes_add_component_layout_zoom_and_mouse_drag(service, tmp_path)
         await pilot.pause()
         panel = app.current_panel()
         before = item.y
-        await pilot.mouse_down(panel, offset=(6, 0))
+        await mouse_input(pilot, "down", (panel.region.x+6, panel.region.y))
         assert panel.dragging
         target = (panel.region.x+6, panel.region.y+round(panel.drag_step[1]*2))
-        await pilot.hover(app.screen, offset=target)
-        await pilot.mouse_up(app.screen, offset=target)
+        await mouse_input(pilot, "move", target)
+        await mouse_input(pilot, "up", target)
         await pilot.pause()
         assert not panel.dragging
         assert item.y == before + 2
@@ -180,10 +180,10 @@ async def test_mouse_resize_restart_and_delete_last_tab(service, tmp_path):
         await ready(app, pilot)
         panel = app.current_panel()
         height = panel.component.h
-        target = (panel.region.right-2, panel.region.bottom-1-round(app.query_one(Dashboard).grid_step[1]*2))
-        await pilot.mouse_down(panel, offset=(panel.region.width-2, panel.region.height-1))
-        await pilot.hover(app.screen, offset=target)
-        await pilot.mouse_up(app.screen, offset=target)
+        target = (panel.region.x+10, panel.region.bottom-1-round(app.query_one(Dashboard).grid_step[1]*2))
+        await mouse_input(pilot, "down", (panel.region.x+10, panel.region.bottom-1))
+        await mouse_input(pilot, "move", target)
+        await mouse_input(pilot, "up", target)
         assert panel.component.h == height - 2
         assert panel.region.height < app.query_one(Dashboard).content_size.height
         original_pid = (await service.call("list"))["sessions"][0]["pid"]

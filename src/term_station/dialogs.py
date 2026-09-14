@@ -87,7 +87,8 @@ class HelpScreen(FormScreen):
                  "Esc：取消前缀 / 结束布局 / 还原放大 / 关闭弹窗\n"
                  "弹窗：Tab / Shift+Tab 切换，Enter 确认\n"
                  "帮助：↑↓ / PageUp / PageDown 滚动，Home / End 跳转\n"
-                 "鼠标：上边框移动，右下角调整，滚轮回看输出", style="#8da5ba"),
+                 "鼠标：交界调整比例，独立上边框移动，其余边缘调整尺寸\n"
+                 "      滚轮回看输出", style="#8da5ba"),
         )
 
     def compose(self) -> ComposeResult:

@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from .daemon import Client
+from .daemon import Client, Daemon
 from .model import WorkspaceStore, state_directory
 
 
@@ -31,11 +31,15 @@ def main() -> None:
     parser.add_argument("--state-dir", type=Path, default=state_directory(), help="配置与后台会话目录")
     parser.add_argument("--yes", action="store_true", help="确认 stop 会结束所有终端进程")
     parser.add_argument("--version", action="version", version="term-station 0.1.0")
+    parser.add_argument("--daemon", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     directory = args.state_dir.expanduser().resolve()
     if os.name != "posix":
         parser.error("目前支持 macOS / Linux；Windows 请在 WSL 内使用")
     try:
+        if args.daemon:
+            asyncio.run(Daemon(directory).run())
+            return
         if args.command in ("sessions", "stop"):
             if args.command == "stop" and not args.yes:
                 parser.error("stop 会结束所有终端进程；确认后请加 --yes")

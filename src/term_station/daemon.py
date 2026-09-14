@@ -89,6 +89,17 @@ class Session:
         env.pop("STY", None)
         env.pop("COLUMNS", None)
         env.pop("LINES", None)
+        if getattr(sys, "frozen", False):
+            # Shells launch system programs, including independent copies of us.
+            for key in list(env):
+                if key.startswith("_PYI_") or key == "PYINSTALLER_RESET_ENVIRONMENT":
+                    env.pop(key)
+            if sys.platform.startswith("linux"):
+                original_library_path = env.pop("LD_LIBRARY_PATH_ORIG", None)
+                if original_library_path is None:
+                    env.pop("LD_LIBRARY_PATH", None)
+                else:
+                    env["LD_LIBRARY_PATH"] = original_library_path
 
         def controlling_terminal():
             os.setsid()
@@ -338,10 +349,16 @@ class Client:
                 raise ConnectionError("后台服务未运行")
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         log_fd = os.open(self.directory / "daemon.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        frozen = getattr(sys, "frozen", False)
+        command = ([sys.executable, "--daemon", "--state-dir", str(self.directory)] if frozen
+                   else [sys.executable, "-m", "term_station.daemon", str(self.directory)])
+        # A one-file UI deletes its extracted files when it exits. The daemon
+        # must unpack its own runtime so it can keep serving later UI instances.
+        daemon_env = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"} if frozen else None
         with os.fdopen(log_fd, "ab") as log:
-            child = subprocess.Popen([sys.executable, "-m", "term_station.daemon", str(self.directory)],
-                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-        for _ in range(100):
+            child = subprocess.Popen(command, env=daemon_env, stdin=subprocess.DEVNULL,
+                                     stdout=log, stderr=log, start_new_session=True)
+        for _ in range(300 if frozen else 100):
             await asyncio.sleep(0.05)
             try:
                 self.reader, self.writer = await asyncio.open_unix_connection(str(socket_path(self.directory)), limit=PROTOCOL_LIMIT)

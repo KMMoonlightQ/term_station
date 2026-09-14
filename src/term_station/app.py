@@ -8,11 +8,13 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.geometry import Offset
 from textual.widgets import Static, Tab, Tabs
 
 from .daemon import Client
 from .dialogs import ConfirmScreen, HelpScreen, NameScreen
 from .model import Workspace, WorkspaceStore, WorkspaceTab
+from .processes import foreground_commands
 from .shortcuts import LAYOUT_KEYS, MODIFIER_KEYS, PREFIX_ACTIONS, PREFIX_ALIASES, PREFIX_KEYS
 from .terminal import TerminalView
 from .widgets import Dashboard, Panel
@@ -78,6 +80,18 @@ class TermStation(App, inherit_bindings=False):
         return True
 
     async def on_event(self, event: events.Event) -> None:
+        if isinstance(event, events.Key) and not event.is_forwarded and event.key in {"ctrl+b", "escape"}:
+            self.query_one(Dashboard).finish_drag()
+        if isinstance(event, (events.MouseMove, events.MouseDown, events.MouseUp)) and not event.is_forwarded:
+            dashboard = self.query_one(Dashboard)
+            if len(self.screen_stack) == 1:
+                if dashboard.handle_mouse(event):
+                    self.mouse_position = Offset(event.screen_x, event.screen_y)
+                    event.stop()
+                    event.prevent_default()
+                    return
+            else:
+                dashboard.show_drag_target(None)
         if isinstance(event, events.Key) and not event.is_forwarded and self.prefix_active and len(self.screen_stack) == 1:
             # Resolve prefixes in input order, before events enter widget queues.
             # A terminal may still be awaiting an earlier write to its PTY.
@@ -174,6 +188,7 @@ class TermStation(App, inherit_bindings=False):
     async def rebuild_dashboard(self) -> None:
         self.zoomed = ""
         dashboard = self.query_one(Dashboard)
+        dashboard.show_drag_target(None)
         await dashboard.remove_children()
         await dashboard.mount_all(Panel(c) for c in self.workspace.current.components)
         dashboard.scroll_home(animate=False)
@@ -340,15 +355,11 @@ class TermStation(App, inherit_bindings=False):
         self.push_screen(HelpScreen())
 
     async def action_detach(self) -> None:
-        for panel in self.query(Panel):
-            if panel.dragging:
-                panel.dragging = False
-                item = panel.component
-                self.workspace.current.place(item, item.x, item.y)
+        self.query_one(Dashboard).finish_drag(save=False)
         if not self.save_workspace():
             self.notify("配置保存失败，修复后再离开。", severity="error")
             return
-        await self.client.close()
+        self.workers.cancel_group(self, "daemon")
         self.exit()
 
     def queue_save(self) -> None:
@@ -380,6 +391,7 @@ class TermStation(App, inherit_bindings=False):
             panel.update_state()
 
     async def poll_loop(self) -> None:
+        next_title_update = 0.0
         try:
             while True:
                 try:
@@ -417,6 +429,16 @@ class TermStation(App, inherit_bindings=False):
                             view = by_id.get(frame["id"])
                             if view and view.is_mounted:
                                 view.apply_frame(frame)
+                    if views and asyncio.get_running_loop().time() >= next_title_update:
+                        sessions = (await self.client.call("list"))["sessions"]
+                        visible_ids = {v.component.id for v in views if v.is_mounted and v.visible}
+                        titles = await asyncio.to_thread(foreground_commands, [s for s in sessions if s["id"] in visible_ids])
+                        # Tab changes can remove the captured views while ps runs.
+                        for view in self.query(TerminalView):
+                            if isinstance(view.parent, Panel) and view.component.id in titles:
+                                view.command_title = titles[view.component.id]
+                                view.parent.update_state()
+                        next_title_update = asyncio.get_running_loop().time() + 0.4
                     await asyncio.sleep(0.06)
                 except (ConnectionError, OSError) as error:
                     if self.connected:

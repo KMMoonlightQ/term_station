@@ -12,6 +12,7 @@ dependencies = ["textual>=8.2,<9", "pyte==0.8.2", "psutil>=7.2,<8"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4,<9", "pytest-asyncio>=1.2,<2"]
+bundle = ["pyinstaller>=6.22.1,<7"]
 
 [project.scripts]
 term-station = "term_station.__main__:main"
@@ -23,4 +24,3 @@ packages = ["src/term_station"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
-

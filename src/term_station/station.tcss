@@ -17,6 +17,7 @@ Underline { display: none; }
 .prefix-active #command-bar { background: #24281e; color: #f0b775; text-style: bold; }
 Panel { background: #101821; border: solid #26394b; padding: 0; margin: 0; overflow: hidden hidden; border-title-color: #bacbdc; }
 Panel:focus, Panel:focus-within { border: solid #69d5bd; }
+Panel.edge-hover { border: solid #9be6d5; }
 .editing Panel { border: solid #66715c; }
 .editing Panel:focus, .editing Panel:focus-within, Panel.dragging { border: solid #f0b775; }
 .prefix-active Panel:focus, .prefix-active Panel:focus-within { border: solid #f0b775; }

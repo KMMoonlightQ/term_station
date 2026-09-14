@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from rich.cells import cell_len
 from rich.segment import Segment
@@ -76,6 +77,7 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
     def __init__(self, component: Component):
         super().__init__(id=f"terminal-{component.id}")
         self.component = component
+        self.command_title = Path(component.shell).name
         self.frame: dict = {}
         self.lines: list[Strip] = []
         self.history_offset = 0
