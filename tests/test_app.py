@@ -1,3 +1,7 @@
+import shlex
+import sys
+
+from textual._xterm_parser import XTermParser
 from textual.widgets import Input, Tabs
 
 from term_station.app import TermStation
@@ -61,6 +65,51 @@ async def test_tabs_keyboard_shell_input_and_reopen(service, tmp_path):
         await pilot.press("ctrl+b", "1")
         await ready(restored, pilot)
         assert "TUI_works" in screen_lines(restored.query_one(TerminalView).frame)
+
+
+async def test_shift_chords_reach_shell_as_text(service, tmp_path):
+    app = TermStation(tmp_path)
+    async with app.run_test(size=(120, 38)) as pilot:
+        await ready(app, pilot)
+        terminal = app.query_one(TerminalView)
+        await pilot.press(*"printf 'SHIFT_%s\\n' '")
+        # Real terminal input: a standalone Shift press, Shift+H / Shift+/
+        # without text, then Shift+H with text. The shell must receive H?H.
+        for event in XTermParser().feed("\x1b[57441;2u\x1b[104;2u\x1b[47;2u\x1b[104;2;72u"):
+            app.post_message(event)
+        await pilot.pause()
+        await pilot.press("'", "enter")
+        await wait_frame(service, terminal.component.id, lambda f: "SHIFT_H?H" in screen_lines(f))
+
+
+async def test_modified_chords_deliver_exact_bytes_to_child(service, tmp_path):
+    child = tmp_path / "keyboard_child.py"
+    child.write_text("""import os, termios, tty
+saved = termios.tcgetattr(0)
+try:
+    tty.setraw(0)
+    os.write(1, b'READY_KEYS\\r\\n')
+    data = bytearray()
+    while not data.endswith(b'!'):
+        data.extend(os.read(0, 1))
+    os.write(1, b'KEYS:' + data[:-1].hex().encode() + b'\\r\\n')
+finally:
+    termios.tcsetattr(0, termios.TCSANOW, saved)
+""")
+    app = TermStation(tmp_path)
+    async with app.run_test(size=(120, 38)) as pilot:
+        await ready(app, pilot)
+        terminal = app.query_one(TerminalView)
+        await terminal.send(shlex.join([sys.executable, str(child)]) + "\r")
+        await wait_frame(service, terminal.component.id, lambda f: "READY_KEYS" in screen_lines(f))
+        sequence = ("\x1b[13;2u\x1b[9;6u\x1b[47;5u\x1b[50;5u"
+                    "\x1b[55;7u\x1b[127;2u\x1b[27;2;13~!")
+        for event in XTermParser().feed(sequence):
+            app.post_message(event)
+        expected = b"\x1b[13;2u\x1b[9;6u\x1f\x00\x1b\x1f\x7f\x1b[13;2u".hex()
+        await wait_frame(service, terminal.component.id, lambda f: "KEYS:" + expected in screen_lines(f))
+        await pilot.press(*"printf 'AFTER_KEYS\\n'", "enter")
+        await wait_frame(service, terminal.component.id, lambda f: "AFTER_KEYS" in screen_lines(f))
 
 
 async def test_notes_add_component_layout_zoom_and_mouse_drag(service, tmp_path):

@@ -15,6 +15,82 @@ def test_shell_key_encoding(key, character, expected):
     assert encode_key(key, character) == expected
 
 
+@pytest.mark.parametrize("key,character,expected", [
+    ("shift+h", None, "H"), ("shift+l", None, "L"), ("shift+z", None, "Z"),
+    ("shift+slash", None, "?"), ("shift+question_mark", None, "?"),
+    ("shift+1", None, "!"), ("shift+minus", None, "_"),
+    ("shift+equals_sign", None, "+"), ("shift+backslash", None, "|"),
+    ("shift+space", None, " "),
+    # Text supplied by the terminal already reflects the keyboard layout / IME.
+    ("shift+2", "\"", "\""), ("shift+h", "h", "h"), ("shift+h", "中", "中"),
+    ("alt+b", None, "\x1bb"), ("alt+shift+h", None, "\x1bH"),
+    ("shift+alt+h", None, "\x1bH"), ("alt+shift+slash", None, "\x1b?"),
+    ("alt+ctrl+h", None, "\x1b\x08"), ("ctrl+alt+h", None, "\x1b\x08"),
+    ("ctrl+shift+h", None, "\x08"), ("shift+ctrl+h", None, "\x08"),
+    ("ctrl+space", None, "\x00"), ("ctrl+at", None, "\x00"),
+    ("ctrl+backspace", None, "\x17"), ("ctrl+backslash", None, "\x1c"),
+    ("ctrl+underscore", None, "\x1f"),
+    ("shift+f1", None, "\x1b[1;2P"), ("ctrl+f5", None, "\x1b[15;5~"),
+    ("alt+shift+f12", None, "\x1b[24;4~"), ("ctrl+delete", None, "\x1b[3;5~"),
+    ("alt+pageup", None, "\x1b[5;3~"), ("shift+tab", None, "\x1b[Z"),
+    ("left_shift", None, None), ("right_control", None, None),
+    ("unknown_key", None, None),
+])
+def test_modified_shell_key_encoding(key, character, expected):
+    assert encode_key(key, character) == expected
+
+
+@pytest.mark.parametrize("key,expected", [
+    ("ctrl+2", "\x00"), ("ctrl+3", "\x1b"), ("ctrl+4", "\x1c"),
+    ("ctrl+5", "\x1d"), ("ctrl+6", "\x1e"), ("ctrl+7", "\x1f"), ("ctrl+8", "\x7f"),
+    ("ctrl+slash", "\x1f"), ("ctrl+question_mark", "\x7f"), ("ctrl+tilde", "\x1e"),
+    ("ctrl+1", "1"), ("ctrl+semicolon", ";"), ("ctrl+minus", "-"),
+    ("alt+ctrl+2", "\x1b\x00"), ("ctrl+alt+slash", "\x1b\x1f"),
+    ("shift+enter", "\x1b[13;2u"), ("ctrl+enter", "\x1b[13;5u"),
+    ("alt+shift+enter", "\x1b[13;4u"), ("ctrl+alt+enter", "\x1b[13;7u"),
+    ("ctrl+tab", "\x1b[9;5u"), ("ctrl+shift+tab", "\x1b[9;6u"),
+    ("alt+ctrl+shift+tab", "\x1b[9;8u"), ("alt+shift+tab", "\x1b\x1b[Z"),
+    ("alt+enter", "\x1b\r"), ("ctrl+escape", "\x1b[27;5u"),
+    ("shift+backspace", "\x7f"), ("alt+shift+backspace", "\x1b\x7f"),
+    ("alt+ctrl+backspace", "\x1b\x17"),
+    ("super+h", "\x1b[104;9u"), ("super+ctrl+h", "\x1b[104;13u"),
+    ("super+enter", "\x1b[13;9u"), ("hyper+tab", "\x1b[9;17u"),
+    ("meta+up", "\x1b[1;33A"), ("super+f5", "\x1b[15;9~"),
+    ("ctrl+é", "\x1b[233;5u"), ("ctrl+ß", "\x1b[223;5u"),
+    ("alt+ctrl+ß", "\x1b[223;7u"), ("ctrl+shift+ß", "\x1b[223;6u"),
+    ("super+unknown_key", None), ("left_super", None),
+])
+def test_remaining_control_and_extended_chords(key, expected):
+    assert encode_key(key) == expected
+
+
+@pytest.mark.parametrize("modifiers,number", [
+    ("shift", 2), ("alt", 3), ("shift+alt", 4), ("ctrl", 5),
+    ("ctrl+shift", 6), ("ctrl+alt", 7), ("ctrl+alt+shift", 8), ("super", 9),
+])
+def test_all_navigation_and_function_key_modifiers(modifiers, number):
+    # Protocol fixtures are independent of the encoder's key tables.
+    suffixes = {"up": "A", "down": "B", "right": "C", "left": "D", "home": "H", "end": "F",
+                "f1": "P", "f2": "Q", "f3": "R", "f4": "S"}
+    tilde_codes = {"insert": 2, "delete": 3, "pageup": 5, "pagedown": 6,
+                   "f5": 15, "f6": 17, "f7": 18, "f8": 19, "f9": 20, "f10": 21, "f11": 23, "f12": 24}
+    for application_cursor in (False, True):
+        for key, suffix in suffixes.items():
+            assert encode_key(f"{modifiers}+{key}", application_cursor=application_cursor) == f"\x1b[1;{number}{suffix}"
+        for key, code in tilde_codes.items():
+            assert encode_key(f"{modifiers}+{key}", application_cursor=application_cursor) == f"\x1b[{code};{number}~"
+
+
+@pytest.mark.parametrize("modifiers,prefix", [
+    ("ctrl", ""), ("ctrl+shift", ""), ("alt+ctrl", "\x1b"), ("shift+ctrl+alt", "\x1b"),
+])
+def test_control_alphabet_keeps_legacy_shell_bindings(modifiers, prefix):
+    # Preserve terminal control bytes (including SIGINT / EOF), and the existing
+    # legacy alias of Ctrl+Shift+letter to Ctrl+letter.
+    for character, code in zip("abcdefghijklmnopqrstuvwxyz", range(1, 27)):
+        assert encode_key(f"{modifiers}+{character}") == prefix + chr(code)
+
+
 def test_application_cursor_mode():
     assert encode_key("up", application_cursor=True) == "\x1bOA"
 

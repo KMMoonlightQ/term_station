@@ -22,6 +22,8 @@ from typing import Any
 import psutil
 import pyte
 
+from .mouse import TRACKING_MODES, encode_mouse
+
 PROTOCOL_LIMIT = 4 * 1024 * 1024
 
 
@@ -51,6 +53,11 @@ class TerminalScreen(pyte.HistoryScreen):
             super().reset()
             self.alternate = True
         super().set_mode(*modes, **kwargs)
+        if kwargs.get("private"):
+            tracking = [mode for mode in modes if mode in TRACKING_MODES]
+            if tracking:
+                self.mode.difference_update(mode << 5 for mode in TRACKING_MODES)
+                self.mode.add(tracking[-1] << 5)
 
     def reset_mode(self, *modes: int, **kwargs: Any) -> None:
         if kwargs.get("private") and any(m in (47, 1047, 1049) for m in modes) and self.alternate:
@@ -69,6 +76,10 @@ class TerminalScreen(pyte.HistoryScreen):
 
     def write_process_input(self, data: str) -> None:
         self.reply(data.encode())
+
+    @property
+    def mouse_tracking(self) -> int:
+        return next((mode for mode in reversed(TRACKING_MODES) if mode << 5 in self.mode), 0)
 
 
 class Session:
@@ -192,6 +203,7 @@ class Session:
                 "history": len(history), "offset": offset, "columns": self.columns, "rows": self.rows,
                 "alternate": screen.alternate,
                 "application_cursor": (1 << 5) in screen.mode, "bracketed_paste": (2004 << 5) in screen.mode,
+                "mouse_tracking": screen.mouse_tracking,
                 "alive": not self.closed, "exit_code": self.exit_code}
 
     def close_fd(self) -> None:
@@ -279,6 +291,15 @@ class Daemon:
             raise ValueError("会话不存在")
         if operation == "input":
             session.write(request["data"].encode("utf-8"))
+        elif operation == "mouse":
+            x, y = request["x"], request["y"]
+            if type(x) is not int or type(y) is not int or not (0 <= x < session.columns and 0 <= y < session.rows):
+                raise ValueError("无效鼠标坐标")
+            data = encode_mouse(request["action"], request["button"], x, y,
+                                session.screen.mouse_tracking, (1006 << 5) in session.screen.mode,
+                                request.get("shift", False), request.get("alt", False), request.get("ctrl", False))
+            if data:
+                session.write(data)
         elif operation == "resize":
             session.resize(int(request["columns"]), int(request["rows"]))
         else:

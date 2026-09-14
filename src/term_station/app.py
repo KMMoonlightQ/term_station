@@ -84,7 +84,7 @@ class TermStation(App, inherit_bindings=False):
             self.query_one(Dashboard).finish_drag()
         if isinstance(event, (events.MouseMove, events.MouseDown, events.MouseUp)) and not event.is_forwarded:
             dashboard = self.query_one(Dashboard)
-            if len(self.screen_stack) == 1:
+            if len(self.screen_stack) == 1 and not isinstance(self.mouse_captured, TerminalView):
                 if dashboard.handle_mouse(event):
                     self.mouse_position = Offset(event.screen_x, event.screen_y)
                     event.stop()

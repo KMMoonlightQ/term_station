@@ -20,6 +20,70 @@ def key_app(tmp_path, monkeypatch):
     return app
 
 
+async def test_modified_keys_from_terminal_protocols_reach_focused_shell(key_app, monkeypatch):
+    async with key_app.run_test() as pilot:
+        terminal = key_app.query_one(TerminalView)
+        send = AsyncMock()
+        monkeypatch.setattr(terminal, "send", send)
+        for sequence, expected in (
+            ("H", "H"),
+            ("\x1b[57441;2u\x1b[104;2u", "H"),  # Shift press, then Shift+H without text.
+            ("\x1b[104;2;72u", "H"),  # Same chord with explicit text.
+            ("\x1b[47;2u", "?"),
+            ("\x1b[50;2;34u", '"'),  # Shift+2 on a non-US keyboard layout.
+            ("\x1b[98;3u", "\x1bb"),
+            ("\x1b[104;4u", "\x1bH"),
+            ("\x1b[104;7u", "\x1b\x08"),
+            ("\x1b[1;2P", "\x1b[1;2P"),
+            ("\x1b[3;5~", "\x1b[3;5~"),
+            ("\x1b[47;5u", "\x1f"),
+            ("\x1b[63;5u", "\x7f"),
+            ("\x1b[50;5u", "\x00"),
+            ("\x1b[54;5u", "\x1e"),
+            ("\x1b[55;7u", "\x1b\x1f"),
+            ("\x1b[13;2u", "\x1b[13;2u"),
+            ("\x1b[13;7u", "\x1b[13;7u"),
+            ("\x1b[9;5u", "\x1b[9;5u"),
+            ("\x1b[9;6u", "\x1b[9;6u"),
+            ("\x1b[9;8u", "\x1b[9;8u"),
+            ("\x1b[127;2u", "\x7f"),
+            ("\x1b[104;9u", "\x1b[104;9u"),
+            ("\x1b[223;7u", "\x1b[223;7u"),
+            ("\x1b[27;2;13~", "\x1b[13;2u"),  # xterm modifyOtherKeys
+            ("\x1b[27;5;9~", "\x1b[9;5u"),
+        ):
+            send.reset_mock()
+            for event in XTermParser().feed(sequence):
+                key_app.post_message(event)
+            await pilot.pause()
+            send.assert_awaited_once_with(expected)
+            assert key_app.focused == terminal
+            assert not key_app.prefix_active and not key_app.layout_mode
+            assert len(key_app.screen_stack) == 1
+
+
+async def test_scrollback_chords_stay_local_but_ctrl_shift_pageup_reaches_shell(key_app, monkeypatch):
+    async with key_app.run_test() as pilot:
+        terminal = key_app.query_one(TerminalView)
+        terminal.frame = {"history": 200}
+        send = AsyncMock()
+        monkeypatch.setattr(terminal, "send", send)
+        for event in XTermParser().feed("\x1b[5;2~"):
+            key_app.post_message(event)
+        await pilot.pause()
+        assert terminal.history_offset == terminal.size.height
+        send.assert_not_called()
+        for event in XTermParser().feed("\x1b[6;2~"):
+            key_app.post_message(event)
+        await pilot.pause()
+        assert terminal.history_offset == 0
+        send.assert_not_called()
+        for event in XTermParser().feed("\x1b[5;6~"):
+            key_app.post_message(event)
+        await pilot.pause()
+        send.assert_awaited_once_with("\x1b[5;6~")
+
+
 async def test_queued_shell_input_cannot_clear_a_new_prefix(key_app, monkeypatch):
     async with key_app.run_test() as pilot:
         terminal = key_app.query_one(TerminalView)

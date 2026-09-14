@@ -74,7 +74,9 @@ python3 -m venv .venv
 | 帮助 | Ctrl+B → ? |
 | 发送 Ctrl+B 给 Shell | Ctrl+B → B，或 Ctrl+B → Ctrl+B |
 
-布局编辑模式中，方向键移动当前组件，`Shift+方向键` 调整尺寸，`Ctrl+B → Tab` 切换组件，`Esc` 完成。终端中，滚轮或 `Shift+PageUp/PageDown` 回看输出，输入时回到底部。工作台不占用 F1–F12。
+布局编辑模式中，方向键移动当前组件，`Shift+方向键` 调整尺寸，`Ctrl+B → Tab` 切换组件，`Esc` 完成。终端中的程序启用鼠标支持时，内容区的点击、拖动和滚轮会转发给程序；组件边框仍用于调整布局。普通 Shell 中滚轮回看输出；应用占用滚轮时可用 `Shift+滚轮` 或 `Shift+PageUp/PageDown` 回看历史，输入时回到底部。工作台不占用 F1–F12。
+
+终端组件支持 Shift / Alt / Ctrl 与字母、数字、符号、方向键及 F1–F12 的组合。`Shift+Enter`、`Ctrl+Enter`、`Ctrl+Tab`、`Ctrl+Shift+Tab` 和终端实际送达的 Super / Meta / Hyper 组合按 CSI-u 等扩展序列转发，具体动作需要组件内的程序支持并绑定。普通 Ctrl 组合沿用传统终端控制码，因此 `Ctrl+I` 与 Tab、`Ctrl+M` 与 Enter、`Ctrl+Shift+字母` 与 `Ctrl+字母` 仍可能相同；这不等于完整的 Kitty 键盘协议协商支持。
 
 删除组件或 Tab 会直接执行并结束对应的终端会话。重启 Shell 会显示确认框。**Ctrl+B → D 只离开界面，不结束后台进程。**
 
@@ -117,7 +119,9 @@ Textual TUI  ── Unix socket（仅本用户） ── Python 后台服务
 - `processes.py`：识别 PTY 的前台进程，更新 Shell 标题。
 - `app.py` / `dialogs.py`：Tab、快捷键、自动保存和管理操作。
 
-首版使用内置的轻量复用服务，不依赖或修改 tmux 配置。支持 ANSI / VT 常用序列和备用屏幕，但尚未实现终端图像协议、完整的应用鼠标协议或与 tmux 的协议兼容。可在组件 Shell 中按需运行 tmux。
+首版使用内置的轻量复用服务，不依赖或修改 tmux 配置。支持 ANSI / VT 常用序列、备用屏幕，以及应用鼠标跟踪（9/1000/1002/1003、SGR 1006 和传统字节编码）。尚未实现终端图像协议、像素鼠标坐标和与 tmux 的完整协议兼容。可在组件 Shell 中按需运行 tmux。
+
+鼠标转发需要新版界面和新版后台同时运行。仅退出再打开界面会接回原有后台；升级前请先保存后台程序的工作，再结束旧后台并重新启动。`stop --yes` 会结束该工作空间的所有终端会话，不能保留正在运行的进程；使用新的 `--state-dir` 可以先验证新版而不影响原有会话。
 
 技术参考：[Textual 文档](https://textual.textualize.io/guide/widgets/)、[pyte API](https://pyte.readthedocs.io/en/latest/api.html)。
 
