@@ -21,6 +21,7 @@ from typing import Any
 
 import psutil
 import pyte
+from wcwidth import wcswidth
 
 from .mouse import TRACKING_MODES, encode_mouse
 
@@ -193,7 +194,18 @@ class Session:
         visible = lines[max(0, end-screen.lines):end]
         encoded = []
         for line in visible:
-            chars = [line[x] for x in range(screen.columns)]
+            chars = []
+            for x in range(screen.columns):
+                char = line[x]
+                # pyte may leave either half of an overwritten wide glyph behind.
+                # Preserve its screen columns when converting the grid to text.
+                if char.data == "":
+                    if x == 0 or wcswidth(line[x - 1].data) != 2:
+                        char = char._replace(data=" ")
+                elif wcswidth(char.data) == 2:
+                    if x + 1 == screen.columns or line[x + 1].data != "":
+                        char = char._replace(data=" ")
+                chars.append(char)
             runs = []
             for attributes, group in groupby(chars, key=lambda c: (c.fg, c.bg, c.bold, c.italics, c.underscore, c.reverse, c.strikethrough)):
                 runs.append(["".join(c.data for c in group), *attributes])
