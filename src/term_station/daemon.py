@@ -47,6 +47,15 @@ class TerminalScreen(pyte.HistoryScreen):
         self.reply = reply
         super().__init__(columns, lines, history=2000)
 
+    def resize(self, lines: int = None, columns: int = None) -> None:
+        """Resize while extending the terminal's default eight-column tabs."""
+        old_columns = self.columns
+        new_columns = columns or old_columns
+        super().resize(lines=lines, columns=columns)
+        if new_columns > old_columns:
+            first_new_stop = (old_columns + 7) // 8 * 8
+            self.tabstops.update(range(first_new_stop, new_columns, 8))
+
     def set_mode(self, *modes: int, **kwargs: Any) -> None:
         if kwargs.get("private") and any(m in (47, 1047, 1049) for m in modes) and not self.alternate:
             self.main_screen = {name: copy.deepcopy(getattr(self, name)) for name in self.SAVED}
@@ -69,7 +78,7 @@ class TerminalScreen(pyte.HistoryScreen):
             self.alternate = False
             columns, lines = self.columns, self.lines
             self.columns, self.lines = self.main_size
-            super().resize(columns=columns, lines=lines)
+            self.resize(columns=columns, lines=lines)
             self.cursor.x = min(self.cursor.x, self.columns - 1)
             self.cursor.y = min(self.cursor.y, self.lines - 1)
             self.dirty.update(range(self.lines))

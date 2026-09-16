@@ -129,6 +129,19 @@ def test_resizing_an_alternate_screen_keeps_restored_shell_usable():
     assert any("resized shell" in line for line in screen.display)
 
 
+def test_widening_screen_adds_default_tab_stops_to_new_columns():
+    screen = TerminalScreen(80, 3, lambda _: None)
+    stream = pyte.Stream(screen)
+    screen.resize(columns=120, lines=3)
+
+    # BSD ls uses tabs for its column layout.  This starts just beyond the
+    # last tab stop from the original 80-column screen.
+    stream.feed("\x1b[1;71HREADME.md\tuv.lock")
+
+    assert screen.display[0][80:87] == "uv.lock"
+    assert not screen.display[1].strip()
+
+
 @pytest.mark.parametrize("text,cursor_x,reverse,highlight_start,highlight_width", [
     ("prompt> ", 8, False, 8, 1),
     ("prompt> ", 8, True, 8, 1),
