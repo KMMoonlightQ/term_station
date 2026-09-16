@@ -61,9 +61,10 @@ async def test_shared_vertical_drag_from_either_border_or_inner_column(tmp_path,
         panels = list(app.query(Panel))
         start = (panels[1].region.x+inner_column, 10)
         await mouse_input(pilot, "move", start)
-        assert all(p.has_class("edge-hover") for p in panels)
+        assert not any(p.has_class("edge-hover") for p in panels)
         assert app.screen._pointer_shape == "ew-resize"
         await mouse_input(pilot, "down", start)
+        assert all(p.has_class("edge-hover") for p in panels)
         assert board.drag_target.divider is not None
         await mouse_input(pilot, "move", (start[0]+20, start[1]))
         # The resize is visible before releasing the mouse.
@@ -80,6 +81,30 @@ async def test_shared_vertical_drag_from_either_border_or_inner_column(tmp_path,
         assert board.hover_pointer == "default"
         assert app.screen._pointer_shape == "text"
         assert all(p.query_one(NotesView).text == "" for p in panels)
+
+
+async def test_border_highlight_only_appears_after_hover_delay(tmp_path, monkeypatch):
+    left = Component(kind="notes", x=0, y=0, w=6, h=12)
+    right = Component(kind="notes", x=6, y=0, w=6, h=12)
+    app = offline_app(tmp_path, monkeypatch, [left, right])
+    async with app.run_test(size=(120, 49)) as pilot:
+        await pilot.pause()
+        board = app.query_one(Dashboard)
+        panels = list(app.query(Panel))
+        border = (panels[1].region.x, 10)
+
+        await mouse_input(pilot, "move", border)
+        assert app.screen._pointer_shape == "ew-resize"
+        assert not any(panel.has_class("edge-hover") for panel in panels)
+
+        # Passing over the border before the delay expires must not flash it.
+        await mouse_input(pilot, "move", (30, 10))
+        await pilot.pause(board.HOVER_HIGHLIGHT_DELAY + 0.03)
+        assert not any(panel.has_class("edge-hover") for panel in panels)
+
+        await mouse_input(pilot, "move", border)
+        await pilot.pause(board.HOVER_HIGHLIGHT_DELAY + 0.03)
+        assert all(panel.has_class("edge-hover") for panel in panels)
 
 
 async def test_lower_panel_top_border_resizes_both_heights(tmp_path, monkeypatch):

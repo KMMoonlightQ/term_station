@@ -68,12 +68,17 @@ class DragTarget:
 
 
 class Dashboard(ScrollableContainer):
+    HOVER_HIGHLIGHT_DELAY = 0.12
+
     def __init__(self):
         super().__init__(id="dashboard")
         self.dashboard_layout = DashboardLayout()
         self.drag_target: DragTarget | None = None
         self.hovered: list[Panel] = []
         self.hover_pointer = "default"
+        self.hover_key = None
+        self.hover_highlighted = False
+        self.hover_timer = None
 
     @property
     def layout(self) -> Layout:
@@ -137,14 +142,31 @@ class Dashboard(ScrollableContainer):
                 return DragTarget(panel, "w" if west else "e")
         return None
 
-    def show_drag_target(self, target: DragTarget | None, dragging: bool = False) -> None:
+    @staticmethod
+    def drag_target_key(target: DragTarget | None):
+        if target is None:
+            return None
+        members = target.divider.members if target.divider else [target.panel.component]
+        return target.kind, tuple(sorted(component.id for component in members))
+
+    def cancel_hover_timer(self) -> None:
+        if self.hover_timer is not None:
+            self.hover_timer.stop()
+            self.hover_timer = None
+
+    def show_drag_target(self, target: DragTarget | None, dragging: bool = False,
+                         highlight: bool = True) -> None:
+        self.cancel_hover_timer()
+        key = self.drag_target_key(target)
         ids = {c.id for c in target.divider.members} if target and target.divider else {target.panel.component.id} if target else set()
         hovered = [p for p in self.children if p.component.id in ids]
         pointer = ("grabbing" if dragging and target.kind == "move" else target.pointer) if target else "default"
+        highlighted = bool(target and (highlight or dragging))
         # A press can arrive before the terminal reports any hover position.
         # Keep the resize pointer while mouse capture carries us off the edge.
         self.screen.styles.pointer = pointer if dragging else None
-        if hovered == self.hovered and pointer == self.hover_pointer:
+        if (key == self.hover_key and hovered == self.hovered and pointer == self.hover_pointer
+                and highlighted == self.hover_highlighted):
             self.screen.update_pointer_shape()
             return
         for panel in self.hovered:
@@ -153,12 +175,27 @@ class Dashboard(ScrollableContainer):
             for child in panel.children:
                 child.styles.pointer = None
         for panel in hovered:
-            panel.add_class("edge-hover")
+            if highlighted:
+                panel.add_class("edge-hover")
             panel.styles.pointer = pointer
             for child in panel.children:
                 child.styles.pointer = pointer
         self.hovered, self.hover_pointer = hovered, pointer
+        self.hover_key, self.hover_highlighted = key, highlighted
         self.screen.update_pointer_shape()
+
+    def hover_drag_target(self, target: DragTarget | None) -> None:
+        key = self.drag_target_key(target)
+        if key == self.hover_key:
+            return
+        self.show_drag_target(target, highlight=False)
+        if target is not None:
+            def show_highlight() -> None:
+                self.hover_timer = None
+                if self.drag_target is None and self.hover_key == key:
+                    self.show_drag_target(target)
+
+            self.hover_timer = self.set_timer(self.HOVER_HIGHLIGHT_DELAY, show_highlight)
 
     def handle_mouse(self, event: events.MouseEvent) -> bool:
         x, y = event.screen_x, event.screen_y
@@ -166,7 +203,7 @@ class Dashboard(ScrollableContainer):
             if self.drag_target:
                 self.move_drag(x, y)
                 return True
-            self.show_drag_target(self.drag_target_at(x, y))
+            self.hover_drag_target(self.drag_target_at(x, y))
         elif isinstance(event, events.MouseDown) and event.button == 1:
             target = self.drag_target_at(x, y)
             if target:
@@ -187,7 +224,7 @@ class Dashboard(ScrollableContainer):
         elif isinstance(event, events.MouseUp) and event.button == 1 and self.drag_target:
             self.move_drag(x, y)
             self.finish_drag()
-            self.show_drag_target(self.drag_target_at(x, y))
+            self.hover_drag_target(self.drag_target_at(x, y))
             return True
         return False
 
