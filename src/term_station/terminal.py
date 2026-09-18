@@ -106,13 +106,13 @@ def terminal_color(value: str, default: str) -> str:
 
 @lru_cache(maxsize=4096)
 def cell_style(fg: str, bg: str, bold: bool, italic: bool, underline: bool, reverse: bool, strike: bool) -> Style:
-    return Style(color=terminal_color(fg, "#d8e2ed"), bgcolor=terminal_color(bg, "#101821"),
+    return Style(color=terminal_color(fg, "default"), bgcolor=terminal_color(bg, "default"),
                  bold=bold, italic=italic, underline=underline, reverse=reverse, strike=strike)
 
 
 class TerminalView(Widget, can_focus=True, inherit_bindings=False):
     DEFAULT_CSS = """
-    TerminalView { width: 1fr; height: 1fr; background: #101821; overflow: hidden hidden; }
+    TerminalView { width: 1fr; height: 1fr; background: ansi_default; color: ansi_default; overflow: hidden hidden; }
     """
     ALLOW_SELECT = False
 
@@ -137,7 +137,7 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
         self.refresh()
 
     def render_line(self, y: int) -> Strip:
-        background = Style(color="#62768c", bgcolor="#101821")
+        background = Style(color="default", bgcolor="default")
         if self.error and y == 0:
             return Strip([Segment(self.error, background)]).crop_extend(0, self.size.width, background)
         line = self.lines[y] if y < len(self.lines) else Strip.blank(self.size.width, background)
@@ -154,10 +154,11 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
                         x, cursor_width = column, width
                         break
                     column += width
-                cursor = Strip(Segment.apply_style(
-                    line.crop(x, x+cursor_width),
-                    post_style=Style(color="#101821", bgcolor="#8be2cc", reverse=False),
-                ))
+                cursor = Strip([
+                    Segment(segment.text, (segment.style or Style()) +
+                            Style(reverse=not (segment.style and segment.style.reverse)))
+                    for segment in line.crop(x, x+cursor_width)
+                ])
                 line = Strip.join([line.crop(0, x), cursor, line.crop(x+cursor_width)])
         return line
 

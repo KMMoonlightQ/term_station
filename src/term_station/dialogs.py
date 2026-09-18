@@ -73,13 +73,13 @@ class HelpScreen(FormScreen):
     @staticmethod
     def reference() -> Group:
         table = Table.grid(padding=(0, 2))
-        table.add_column(style="bold #d8e2ed", no_wrap=True)
-        table.add_column(style="#bacbdc")
+        table.add_column(style="bold default", no_wrap=True)
+        table.add_column(style="default")
         for _, _, key, description in PREFIX_COMMANDS:
             table.add_row(key, description)
         table.add_row("1–9", "切换到第 1–9 个 Tab")
         return Group(
-            Text("Ctrl+B →\n", style="bold #69d5bd"),
+            Text("Ctrl+B →\n", style="bold cyan"),
             table,
             Text("\n布局：↑↓←→ 移动；Shift+方向键 调整尺寸\n"
                  "终端：Shift+PageUp / Shift+PageDown 回看输出\n"
@@ -88,7 +88,7 @@ class HelpScreen(FormScreen):
                  "弹窗：Tab / Shift+Tab 切换，Enter 确认\n"
                  "帮助：↑↓ / PageUp / PageDown 滚动，Home / End 跳转\n"
                  "鼠标：交界调整比例，独立上边框移动，其余边缘调整尺寸\n"
-                 "      滚轮回看输出", style="#8da5ba"),
+                 "      滚轮回看输出", style="default"),
         )
 
     def compose(self) -> ComposeResult:

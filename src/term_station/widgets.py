@@ -283,10 +283,10 @@ class SystemView(Static):
             return "━" * filled + "╺" * (width-filled)
 
         text = Text()
-        text.append(f"CPU  {bar(cpu)} {cpu:4.0f}%\n", "#69d5bd")
-        text.append(f"RAM  {bar(memory.percent)} {memory.percent:4.0f}%\n", "#90aefa")
-        text.append(f"{memory.used/1024**3:.1f} / {memory.total/1024**3:.1f} GB\n", "#7890a6")
-        text.append(f"{platform.system()} · {platform.machine()}", "#7890a6")
+        text.append(f"CPU  {bar(cpu)} {cpu:4.0f}%\n", "cyan")
+        text.append(f"RAM  {bar(memory.percent)} {memory.percent:4.0f}%\n", "blue")
+        text.append(f"{memory.used/1024**3:.1f} / {memory.total/1024**3:.1f} GB\n", "default")
+        text.append(f"{platform.system()} · {platform.machine()}", "default")
         return text
 
 
@@ -296,9 +296,9 @@ class ClockView(Static):
 
     def render(self) -> Text:
         now = datetime.now().astimezone()
-        return Text.assemble((now.strftime("%H:%M:%S\n"), "bold #69d5bd"),
-                             (now.strftime("%Y.%m.%d\n"), "#bacbdc"),
-                             (f"{'一二三四五六日'[now.weekday()]} · {now.tzname()}", "#7890a6"))
+        return Text.assemble((now.strftime("%H:%M:%S\n"), "bold cyan"),
+                             (now.strftime("%Y.%m.%d\n"), "default"),
+                             (f"{'一二三四五六日'[now.weekday()]} · {now.tzname()}", "default"))
 
 
 class NotesView(TextArea):

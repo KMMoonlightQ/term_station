@@ -150,6 +150,7 @@ def test_widening_screen_adds_default_tab_stops_to_new_columns():
     ("x" * 20, 20, False, 19, 1),
 ])
 async def test_cursor_overrides_terminal_styles_without_changing_text(text, cursor_x, reverse, highlight_start, highlight_width):
+    from rich.style import Style
     from textual.app import App
     from textual.widget import Widget
     from term_station.model import Component
@@ -177,13 +178,16 @@ async def test_cursor_overrides_terminal_styles_without_changing_text(text, curs
         assert strip.text.rstrip() == text.rstrip()
         assert strip.cell_length == 20
         cursor = list(strip.crop(highlight_start, highlight_start + highlight_width))
-        assert all(s.style.bgcolor.triplet.hex == "#8be2cc" and not s.style.reverse for s in cursor)
+        base = terminal.lines[0].crop_extend(0, 20, Style(color="default", bgcolor="default"))
+        original = list(base.crop(highlight_start, highlight_start + highlight_width))
+        assert [bool(s.style.reverse) for s in cursor] == [not bool(s.style.reverse) for s in original]
+        assert all(s.style.color.is_default and s.style.bgcolor.is_default for s in cursor)
 
         frame["cursor_hidden"] = True
         terminal.apply_frame(frame)
-        assert not any(s.style.bgcolor.triplet.hex == "#8be2cc" for s in terminal.render_line(0))
+        assert list(terminal.render_line(0)) == list(base)
         frame["cursor_hidden"] = False
         terminal.apply_frame(frame)
         app.query_one("#other").focus()
         await pilot.pause()
-        assert not any(s.style.bgcolor.triplet.hex == "#8be2cc" for s in terminal.render_line(0))
+        assert list(terminal.render_line(0)) == list(base)

@@ -32,7 +32,9 @@ class TermStation(App, inherit_bindings=False):
 
     def __init__(self, directory: Path, workspace: Workspace | None = None):
         super().__init__()
-        self.theme = "textual-dark"
+        # Native ANSI defaults are resolved by the host terminal, including live
+        # palette changes. Do not convert them to Textual's fixed RGB palette.
+        self.theme = "ansi-dark"
         self.store = WorkspaceStore(directory)
         self.workspace = workspace or self.store.load()
         self.client = Client(directory)

@@ -1,36 +1,36 @@
 Screen {
-    background: #0b1119;
-    color: #d8e2ed;
+    background: ansi_default;
+    color: ansi_default;
     padding: 0;
     margin: 0;
 }
-#tab-row { height: 1; padding: 0; background: #0b1119; }
+#tab-row { height: 1; padding: 0; background: ansi_default; }
 #workspace-tabs { width: 1fr; height: 1; }
-Tabs { background: #0b1119; }
+Tabs { background: ansi_default; }
 Tabs #tabs-scroll, Tabs #tabs-list-bar, Tabs #tabs-list { height: 1; }
-Tab { background: #101821; color: #7890a6; padding: 0 1; }
-Tab.-active { background: #142b2b; color: #8be2cc; text-style: bold; }
+Tab { background: ansi_default; color: ansi_default; padding: 0 1; }
+Tab.-active { background: ansi_default; color: ansi_cyan; text-style: bold; }
 Underline { display: none; }
-#dashboard { height: 1fr; width: 1fr; padding: 0; overflow: hidden auto; scrollbar-size-vertical: 1; scrollbar-color: #35526b; scrollbar-background: #0b1119; }
-#dashboard:empty { border: solid #26394b; }
-#command-bar { dock: bottom; height: 1; width: 1fr; padding: 0 1; background: #0b1119; overflow: hidden hidden; }
-.prefix-active #command-bar { background: #24281e; color: #f0b775; text-style: bold; }
-Panel { background: #101821; border: solid #26394b; padding: 0; margin: 0; overflow: hidden hidden; border-title-color: #bacbdc; }
-Panel:focus, Panel:focus-within { border: solid #69d5bd; }
-Panel.edge-hover { border: solid #9be6d5; }
-.editing Panel { border: solid #66715c; }
-.editing Panel:focus, .editing Panel:focus-within, Panel.dragging { border: solid #f0b775; }
-.prefix-active Panel:focus, .prefix-active Panel:focus-within { border: solid #f0b775; }
+#dashboard { height: 1fr; width: 1fr; padding: 0; overflow: hidden auto; scrollbar-size-vertical: 1; scrollbar-color: ansi_blue; scrollbar-background: ansi_default; }
+#dashboard:empty { border: solid ansi_default; }
+#command-bar { dock: bottom; height: 1; width: 1fr; padding: 0 1; background: ansi_default; overflow: hidden hidden; }
+.prefix-active #command-bar { background: ansi_default; color: ansi_yellow; text-style: bold; }
+Panel { background: ansi_default; border: solid ansi_default; padding: 0; margin: 0; overflow: hidden hidden; border-title-color: ansi_default; }
+Panel:focus, Panel:focus-within { border: solid ansi_cyan; }
+Panel.edge-hover { border: solid ansi_green; }
+.editing Panel { border: solid ansi_yellow; }
+.editing Panel:focus, .editing Panel:focus-within, Panel.dragging { border: solid ansi_yellow; }
+.prefix-active Panel:focus, .prefix-active Panel:focus-within { border: solid ansi_yellow; }
 Panel.dragging { layer: overlay; }
 .info-body { height: 1fr; width: 1fr; padding: 1 1 0 1; overflow: hidden hidden; }
-NotesView { width: 1fr; height: 1fr; border: none; padding: 1; background: #101821; color: #a8bccd; }
+NotesView { width: 1fr; height: 1fr; border: none; padding: 1; background: ansi_default; color: ansi_default; }
 NotesView:focus { border: none; }
-FormScreen { align: center middle; background: #040810 75%; }
-.dialog { width: 64; height: auto; max-height: 95%; border: round #426876; background: #111c28; padding: 1 2; overflow-y: auto; }
-.dialog-title { text-style: bold; color: #8be2cc; height: 2; }
+FormScreen { align: center middle; background: ansi_default; }
+.dialog { width: 64; height: auto; max-height: 95%; border: round ansi_blue; background: ansi_default; padding: 1 2; overflow-y: auto; }
+.dialog-title { text-style: bold; color: ansi_cyan; height: 2; }
 .dialog Label { height: auto; margin-top: 1; }
-.dialog Input { background: #0b141e; border: tall #30475c; margin-bottom: 0; }
-.dialog Input:focus { border: tall #69d5bd; }
+.dialog Input { background: ansi_default; border: tall ansi_default; margin-bottom: 0; }
+.dialog Input:focus { border: tall ansi_cyan; }
 .dialog-actions { height: 1; align-horizontal: right; margin-top: 1; }
 .dialog Button {
     width: auto;
@@ -41,12 +41,20 @@ FormScreen { align: center middle; background: #040810 75%; }
     border: none !important;
     background: transparent !important;
     tint: transparent !important;
-    color: #bacbdc;
+    color: ansi_default;
     text-style: none;
 }
-.dialog Button.-primary { color: #8be2cc; }
-.dialog Button.-error { color: #ed8c96; }
+.dialog Button.-primary { color: ansi_cyan; }
+.dialog Button.-error { color: ansi_red; }
 .dialog Button:hover, .dialog Button:focus { text-style: bold underline; }
 .help-dialog { width: 70; height: 36; max-height: 100%; }
 #help-scroll { height: 1fr; scrollbar-size-vertical: 1; }
 #help-content { height: auto; }
+
+/* Reverse the host defaults so editing cursors work in light and dark themes. */
+.dialog Input { color: ansi_default; }
+.dialog Input > .input--cursor, NotesView .text-area--cursor {
+    color: ansi_default;
+    background: ansi_default;
+    text-style: reverse;
+}
