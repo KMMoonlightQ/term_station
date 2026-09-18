@@ -30,7 +30,7 @@ def main() -> None:
     parser.add_argument("command", nargs="?", choices=["start", "sessions", "stop"], default="start")
     parser.add_argument("--state-dir", type=Path, default=state_directory(), help="配置与后台会话目录")
     parser.add_argument("--yes", action="store_true", help="确认 stop 会结束所有终端进程")
-    parser.add_argument("--version", action="version", version="term-station 0.1.6")
+    parser.add_argument("--version", action="version", version="term-station 0.1.7")
     parser.add_argument("--daemon", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     directory = args.state_dir.expanduser().resolve()
