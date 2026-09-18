@@ -46,10 +46,28 @@ def test_tracking_modes_switch_reset_and_survive_alternate_screen_restore():
     assert screen.mouse_tracking == 1003
     stream.feed(b"\x1b[?1002h")
     assert screen.mouse_tracking == 1002
-    stream.feed(b"\x1b[?1049h\x1b[?1003h\x1b[?1049l")
+    stream.feed(b"\x1b[?1049h")
     assert screen.mouse_tracking == 1002
-    stream.feed(b"\x1b[?1002l")
+    assert (1006 << 5) in screen.mode
+    stream.feed(b"\x1b[?1003h\x1b[?1049l")
+    assert screen.mouse_tracking == 1003
+    stream.feed(b"\x1b[?1003l")
     assert screen.mouse_tracking == 0
+
+
+@pytest.mark.parametrize("alternate_mode", [47, 1047, 1049])
+@pytest.mark.parametrize("disable_before_restore", [True, False])
+def test_wheel_does_not_reach_shell_after_application_exit(alternate_mode, disable_before_restore):
+    screen = TerminalScreen(80, 24, lambda _: None)
+    stream = pyte.ByteStream(screen)
+    stream.feed(b"\x1b[?1000h\x1b[?1006h")
+    stream.feed(f"\x1b[?{alternate_mode}h".encode())
+    disable = b"\x1b[?1000l\x1b[?1006l"
+    restore = f"\x1b[?{alternate_mode}l".encode()
+    stream.feed(disable + restore if disable_before_restore else restore + disable)
+    assert encode_mouse("scroll", 65, 31, 13, screen.mouse_tracking,
+                        (1006 << 5) in screen.mode) == b""
+    assert (1006 << 5) not in screen.mode
 
 
 async def post_mouse(pilot, code, x, y, suffix="M"):
@@ -96,23 +114,33 @@ async def test_terminal_mouse_coordinates_capture_wheel_and_layout_drag(tmp_path
         terminal.frame["mouse_tracking"] = 0
         await mouse_input(pilot, "down", (x, y))
         await mouse_input(pilot, "up", (x, y))
+        await post_mouse(pilot, 64, x, y)
+        assert terminal.history_offset == 3
+        await post_mouse(pilot, 65, x, y)
+        assert terminal.history_offset == 0
         assert not calls.called
 
 
-async def test_real_child_receives_click_and_mouse_modes_return_to_shell(service, tmp_path):
+@pytest.mark.parametrize("alternate", [False, True])
+async def test_real_child_receives_click_and_mouse_modes_return_to_shell(service, tmp_path, alternate):
     # The child enables application mouse reporting and prints the exact bytes
     # it receives from Textual -> RPC -> PTY. No mock clipboard or input writer.
     child = tmp_path / "mouse_child.py"
-    child.write_text("""import os, sys, termios, tty
+    child.write_text(f"""import os, sys, termios, tty
 fd = sys.stdin.fileno()
 saved = termios.tcgetattr(fd)
 try:
     tty.setraw(fd)
     os.write(1, b'\\x1b[?1000h\\x1b[?1002h\\x1b[?1003h\\x1b[?1006hREADY_MOUSE\\r\\n')
+    if {alternate!r}:
+        os.write(1, b'\\x1b[?1049h')
     data = bytearray()
     while not data.endswith(b'm'):
         data.extend(os.read(fd, 1))
-    os.write(1, b'\\x1b[?1000l\\x1b[?1002l\\x1b[?1003l\\x1b[?1006lRESULT:' + data.hex().encode() + b'\\r\\n')
+    os.write(1, b'\\x1b[?1000l\\x1b[?1002l\\x1b[?1003l\\x1b[?1006l')
+    if {alternate!r}:
+        os.write(1, b'\\x1b[?1049l')
+    os.write(1, b'RESULT:' + data.hex().encode() + b'\\r\\n')
 finally:
     termios.tcsetattr(fd, termios.TCSANOW, saved)
 """)
@@ -132,8 +160,9 @@ finally:
         assert terminal.frame.get("mouse_tracking") == 1003
         x, y = terminal.content_region.x+8, terminal.content_region.y+4
         await mouse_input(pilot, "down", (x, y))
+        await post_mouse(pilot, 65, x, y)
         await mouse_input(pilot, "up", (x, y))
-        expected = (b"\x1b[<0;9;5M" + b"\x1b[<0;9;5m").hex()
+        expected = (b"\x1b[<0;9;5M" + b"\x1b[<65;9;5M" + b"\x1b[<0;9;5m").hex()
         frame = await wait_frame(service, terminal.component.id, lambda f: "RESULT:" + expected in screen_lines(f))
         assert frame["mouse_tracking"] == 0
     await app.client.close()

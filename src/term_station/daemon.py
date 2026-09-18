@@ -39,6 +39,7 @@ def socket_path(directory: Path) -> Path:
 class TerminalScreen(pyte.HistoryScreen):
     """pyte plus the alternate screen used by vim, less, and curses apps."""
     SAVED = ("buffer", "cursor", "savepoints", "margins", "history", "mode", "tabstops")
+    MOUSE_MODES = frozenset(mode << 5 for mode in (*TRACKING_MODES, 1006))
 
     def __init__(self, columns: int, lines: int, reply):
         self.alternate = False
@@ -60,7 +61,9 @@ class TerminalScreen(pyte.HistoryScreen):
         if kwargs.get("private") and any(m in (47, 1047, 1049) for m in modes) and not self.alternate:
             self.main_screen = {name: copy.deepcopy(getattr(self, name)) for name in self.SAVED}
             self.main_size = (self.columns, self.lines)
+            mouse_modes = self.mode & self.MOUSE_MODES
             super().reset()
+            self.mode.update(mouse_modes)
             self.alternate = True
         super().set_mode(*modes, **kwargs)
         if kwargs.get("private"):
@@ -71,9 +74,15 @@ class TerminalScreen(pyte.HistoryScreen):
 
     def reset_mode(self, *modes: int, **kwargs: Any) -> None:
         if kwargs.get("private") and any(m in (47, 1047, 1049) for m in modes) and self.alternate:
+            # Mouse reporting belongs to the terminal, not a screen buffer.
+            # Restoring saved modes here would revive reporting disabled by an
+            # exiting application and send mouse escape sequences to the shell.
+            mouse_modes = self.mode & self.MOUSE_MODES
             if self.main_screen is not None:
                 for name, value in self.main_screen.items():
                     setattr(self, name, value)
+            self.mode.difference_update(self.MOUSE_MODES)
+            self.mode.update(mouse_modes)
             self.main_screen = None
             self.alternate = False
             columns, lines = self.columns, self.lines
