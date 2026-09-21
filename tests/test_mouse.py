@@ -166,3 +166,68 @@ finally:
         frame = await wait_frame(service, terminal.component.id, lambda f: "RESULT:" + expected in screen_lines(f))
         assert frame["mouse_tracking"] == 0
     await app.client.close()
+
+
+@pytest.mark.parametrize("tracking,shift,offset", [(0, False, 0), (1003, True, 0), (1003, False, 3)])
+@pytest.mark.parametrize("backwards", [False, True])
+async def test_drag_selects_terminal_text_without_copying(tmp_path, monkeypatch, tracking, shift, offset, backwards):
+    app = TermStation(tmp_path)
+    monkeypatch.setattr(app, "poll_loop", AsyncMock())
+    calls = AsyncMock(return_value={})
+    monkeypatch.setattr(app.client, "call", calls)
+    async with app.run_test(size=(120, 40)) as pilot:
+        terminal = app.query_one(TerminalView)
+        terminal.ready = True
+        frame = {"lines": [[[text, "default", "default", False, False, False, False, False]]
+                           for text in ["prompt> 中文 abc", "second line"]],
+                 "offset": offset, "history": 30, "cursor_hidden": True,
+                 "mouse_tracking": tracking}
+        terminal.apply_frame(frame)
+        x, y = terminal.content_region.x, terminal.content_region.y
+        start, end = (x+8, y), (x+6, y+1)
+        if backwards:
+            start, end = end, start
+        modifier = 4 if shift else 0
+        await post_mouse(pilot, modifier, *start)
+        await post_mouse(pilot, 32+modifier, *end)
+        assert app.mouse_captured is terminal
+        assert all(segment.style.reverse for segment in terminal.render_line(0).crop(8, 12))
+        await post_mouse(pilot, modifier, *end, suffix="m")
+        assert app.mouse_captured is None
+        assert app.clipboard == ""
+        assert all(segment.style.reverse for segment in terminal.render_line(0).crop(8, 15))
+        assert all(segment.style.reverse for segment in terminal.render_line(1).crop(0, 6))
+        assert not any(segment.style.reverse for segment in terminal.render_line(1).crop(6, 11))
+        assert not any(call.args[0] == "mouse" for call in calls.call_args_list)
+        assert app.query_one(Dashboard).drag_target is None
+        await pilot.press("ctrl+c")
+        assert calls.call_args.args == ("input",)
+        assert calls.call_args.kwargs["data"] == "\x03"
+
+
+async def test_selection_keeps_drag_text_stable_and_captures_panel_edge(tmp_path, monkeypatch):
+    app = TermStation(tmp_path)
+    monkeypatch.setattr(app, "poll_loop", AsyncMock())
+    async with app.run_test(size=(120, 40)) as pilot:
+        terminal = app.query_one(TerminalView)
+        frame = {"lines": [[["prompt> 中文 abc", "default", "default", False, False, False, False, False]]],
+                 "offset": 0, "history": 30, "cursor_hidden": True}
+        terminal.apply_frame(frame)
+        app.copy_to_clipboard("previous")
+        x, y = terminal.content_region.x, terminal.content_region.y
+        await post_mouse(pilot, 0, x+9, y)
+        await post_mouse(pilot, 0, x+9, y, suffix="m")
+        assert app.clipboard == "previous"  # A click is not a selection.
+        await post_mouse(pilot, 0, x+9, y)  # Inside the second cell of 中.
+        changed = {**frame, "lines": [[["new output", "default", "default", False, False, False, False, False]]]}
+        terminal.apply_frame(changed)
+        await post_mouse(pilot, 32, terminal.region.right, y)
+        await post_mouse(pilot, 0, terminal.region.right, y, suffix="m")
+        assert app.clipboard == "previous"
+        assert all(segment.style.reverse for segment in terminal.render_line(0).crop(8, 15))
+        assert not any(segment.style.reverse for segment in terminal.render_line(0).crop(0, 8))
+        assert app.mouse_captured is None
+        assert app.query_one(Dashboard).drag_target is None
+        terminal.apply_frame(changed)
+        assert terminal.render_line(0).text.rstrip() == "new output"
+        assert terminal.selection_start is None

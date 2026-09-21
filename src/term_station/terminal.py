@@ -128,8 +128,16 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
         self.error = "正在连接 Shell…"
         self.ready = False
         self.mouse_buttons: set[int] = set()
+        self.selection_start: tuple[int, int] | None = None
+        self.selection_end: tuple[int, int] | None = None
+        self.selecting = False
 
     def apply_frame(self, frame: dict) -> None:
+        # Keep the text under a moving pointer stable until the drag ends.
+        if self.selecting:
+            return
+        if frame.get("lines") != self.frame.get("lines") or frame["offset"] != self.last_offset:
+            self.clear_selection()
         self.frame = frame
         self.last_offset = self.history_offset = frame["offset"]
         self.lines = [Strip([Segment(run[0], cell_style(*run[1:])) for run in line]) for line in frame["lines"]]
@@ -160,7 +168,47 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
                     for segment in line.crop(x, x+cursor_width)
                 ])
                 line = Strip.join([line.crop(0, x), cursor, line.crop(x+cursor_width)])
+        selected = self.selection_columns(y)
+        if selected:
+            start, end = selected
+            line = Strip.join([line.crop(0, start),
+                               Strip([Segment(segment.text, (segment.style or Style()) +
+                                              Style(reverse=not (segment.style and segment.style.reverse)))
+                                      for segment in line.crop(start, end)]),
+                               line.crop(end)])
         return line
+
+    def clear_selection(self) -> None:
+        self.selection_start = self.selection_end = None
+        if self.selecting:
+            self.selecting = False
+            self.release_mouse()
+        self.refresh()
+
+    def selection_position(self, event: events.MouseEvent) -> tuple[int, int]:
+        region = self.content_region
+        return (max(0, min(int(event.screen_y) - region.y, self.size.height - 1)),
+                max(0, min(int(event.screen_x) - region.x, self.size.width)))
+
+    def selection_columns(self, y: int) -> tuple[int, int] | None:
+        if self.selection_start is None or self.selection_end is None:
+            return None
+        start, end = sorted((self.selection_start, self.selection_end))
+        if start == end or not start[0] <= y <= end[0]:
+            return None
+        left = start[1] if y == start[0] else 0
+        right = end[1] if y == end[0] else self.size.width
+        # Expand partial wide-character cells so selection always covers complete Chinese characters.
+        column = 0
+        if y < len(self.lines):
+            for character in self.lines[y].text:
+                width = cell_len(character)
+                if column < left < column + width:
+                    left = column
+                if column < right < column + width:
+                    right = column + width
+                column += width
+        return left, right
 
     def on_focus(self) -> None:
         self.refresh()
@@ -187,13 +235,29 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
         event.prevent_default()
 
     async def on_mouse_down(self, event: events.MouseDown) -> None:
-        if self.application_mouse and event.button in (1, 2, 3):
+        self.clear_selection()
+        if event.button == 1 and not self.app.layout_mode and (not self.application_mouse or event.shift):
+            self.selection_start = self.selection_end = self.selection_position(event)
+            self.selecting = True
+            self.capture_mouse()
+            self.focus()
+            event.stop()
+            event.prevent_default()
+        elif self.application_mouse and event.button in (1, 2, 3):
             self.mouse_buttons.add(event.button)
             self.capture_mouse()
             self.focus()
             await self.send_mouse(event, "down", event.button - 1)
 
     async def on_mouse_up(self, event: events.MouseUp) -> None:
+        if self.selecting and event.button == 1:
+            self.selection_end = self.selection_position(event)
+            self.selecting = False
+            self.release_mouse()
+            self.refresh()
+            event.stop()
+            event.prevent_default()
+            return
         if event.button not in self.mouse_buttons:
             return
         self.mouse_buttons.discard(event.button)
@@ -203,6 +267,12 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
             await self.send_mouse(event, "up", event.button - 1)
 
     async def on_mouse_move(self, event: events.MouseMove) -> None:
+        if self.selecting:
+            self.selection_end = self.selection_position(event)
+            self.refresh()
+            event.stop()
+            event.prevent_default()
+            return
         tracking = self.frame.get("mouse_tracking", 0)
         if self.application_mouse and (tracking == 1003 or tracking == 1002 and self.mouse_buttons):
             button = min(self.mouse_buttons) - 1 if self.mouse_buttons else -1
@@ -211,6 +281,7 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
     async def send(self, data: str) -> None:
         if not self.ready or self.app.layout_mode:
             return
+        self.clear_selection()
         self.history_offset = 0
         try:
             await self.app.client.call("input", id=self.component.id, data=data)
@@ -238,6 +309,7 @@ class TerminalView(Widget, can_focus=True, inherit_bindings=False):
         await self.send(text)
 
     def scroll_history(self, amount: int) -> None:
+        self.clear_selection()
         self.history_offset = max(0, min(self.frame.get("history", 0), self.history_offset + amount))
 
     async def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:

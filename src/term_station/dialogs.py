@@ -88,6 +88,7 @@ class HelpScreen(FormScreen):
                  "弹窗：Tab / Shift+Tab 切换，Enter 确认\n"
                  "帮助：↑↓ / PageUp / PageDown 滚动，Home / End 跳转\n"
                  "鼠标：交界调整比例，独立上边框移动，其余边缘调整尺寸\n"
+                 "      内容区拖动选字；应用占用鼠标时用 Shift+拖动\n"
                  "      滚轮回看输出", style="default"),
         )
 
